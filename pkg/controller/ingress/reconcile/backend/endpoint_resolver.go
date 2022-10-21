@@ -1,0 +1,427 @@
+package backend
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"k8s.io/alibaba-load-balancer-controller/pkg/controller/helper"
+
+	"k8s.io/alibaba-load-balancer-controller/pkg/util"
+
+	"k8s.io/alibaba-load-balancer-controller/pkg/controller/helper/k8s"
+	svcctrl "k8s.io/alibaba-load-balancer-controller/pkg/controller/helper/service"
+	"k8s.io/alibaba-load-balancer-controller/pkg/controller/ingress/reconcile/store"
+
+	pkgModel "k8s.io/alibaba-load-balancer-controller/pkg/model"
+
+	"k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
+	prvd "k8s.io/alibaba-load-balancer-controller/pkg/provider"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/cache"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
+)
+
+var ErrNotFound = errors.New("backend not found")
+
+type EndpointResolver interface {
+	ResolveENIEndpoints(ctx context.Context, svcKey types.NamespacedName, port intstr.IntOrString) ([]NodePortEndpoint, bool, error)
+
+	ResolveLocalEndpoints(ctx context.Context, svcKey types.NamespacedName, port intstr.IntOrString) ([]NodePortEndpoint, bool, error)
+
+	ResolveClusterEndpoints(ctx context.Context, svcKey types.NamespacedName, port intstr.IntOrString) ([]NodePortEndpoint, bool, error)
+}
+
+type PodEndpoint struct {
+	IP       string
+	Port     int
+	NodeName *string
+	Pod      *corev1.Pod
+}
+
+type NodePortEndpoint alb.BackendItem
+
+func NewDefaultEndpointResolver(store store.Storer, k8sClient client.Client, cloud prvd.Provider, logger logr.Logger) *defaultEndpointResolver {
+	return &defaultEndpointResolver{
+		k8sClient:     k8sClient,
+		logger:        logger,
+		cloud:         cloud,
+		store:         store,
+		loadNodeMutex: &sync.Mutex{},
+		nodeCache:     cache.NewExpiring(),
+		nodeCacheTTL:  365 * 24 * time.Hour,
+	}
+}
+
+var _ EndpointResolver = &defaultEndpointResolver{}
+
+type defaultEndpointResolver struct {
+	store         store.Storer
+	k8sClient     client.Client
+	cloud         prvd.Provider
+	logger        logr.Logger
+	loadNodeMutex *sync.Mutex
+	nodeCache     *cache.Expiring
+	nodeCacheTTL  time.Duration
+}
+
+func (r *defaultEndpointResolver) findServiceAndServicePort(ctx context.Context, svcKey types.NamespacedName, port intstr.IntOrString) (*corev1.Service, corev1.ServicePort, error) {
+	svc := &corev1.Service{}
+	if err := r.k8sClient.Get(ctx, svcKey, svc); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, corev1.ServicePort{}, fmt.Errorf("%w: %v", ErrNotFound, err.Error())
+		}
+		return nil, corev1.ServicePort{}, err
+	}
+	svcPort, err := LookupServicePort(svc, port)
+	if err != nil {
+		return nil, corev1.ServicePort{}, fmt.Errorf("%w: %v", ErrNotFound, err.Error())
+	}
+
+	return svc, svcPort, nil
+}
+
+func (r *defaultEndpointResolver) resolvePodEndpoints(ctx context.Context, svc *corev1.Service, svcPort corev1.ServicePort) ([]PodEndpoint, bool, error) {
+	epsKey := util.NamespacedName(svc)
+	eps := &corev1.Endpoints{}
+	if err := r.k8sClient.Get(ctx, epsKey, eps); err != nil {
+		klog.Errorf("resolvePodEndpoints: %v", err)
+		if apierrors.IsNotFound(err) {
+			return nil, false, fmt.Errorf("%w: %v", ErrNotFound, err.Error())
+		}
+		return nil, false, err
+	}
+	var endpoints []PodEndpoint
+	containsPotentialReadyEndpoints := false
+	klog.Infof("resolvePodEndpoints = %v", eps)
+
+	for _, ep := range eps.Subsets {
+		var backendPort int
+		for _, p := range ep.Ports {
+			if p.Name == svcPort.Name {
+				backendPort = int(p.Port)
+				break
+			}
+		}
+
+		for _, addr := range ep.Addresses {
+			if addr.TargetRef == nil || addr.TargetRef.Kind != "Pod" {
+				continue
+			}
+			pod, err := r.findPodByReference(ctx, svc.Namespace, *addr.TargetRef)
+			if err != nil {
+				return nil, false, err
+			}
+			endpoints = append(endpoints, buildPodEndpoint(addr, backendPort, pod))
+		}
+		// readiness gates
+		for _, epAddr := range ep.NotReadyAddresses {
+			if epAddr.TargetRef == nil || epAddr.TargetRef.Kind != "Pod" {
+				continue
+			}
+			pod, err := r.findPodByReference(ctx, svc.Namespace, *epAddr.TargetRef)
+			if err != nil {
+				klog.Errorf("findPodByReference error: %s", err.Error())
+				return nil, false, err
+			}
+
+			if !k8s.IsPodHasReadinessGate(pod) {
+				continue
+			}
+			if !k8s.IsPodContainersReady(pod) {
+				containsPotentialReadyEndpoints = true
+				continue
+			}
+			endpoints = append(endpoints, buildPodEndpoint(epAddr, backendPort, pod))
+		}
+
+	}
+
+	return endpoints, containsPotentialReadyEndpoints, nil
+}
+func (r *defaultEndpointResolver) findPodByReference(ctx context.Context, namespace string, podRef corev1.ObjectReference) (*corev1.Pod, error) {
+	podKey := fmt.Sprintf("%s/%s", podRef.Namespace, podRef.Name)
+	return r.store.GetPod(podKey)
+}
+func (r *defaultEndpointResolver) ResolveENIEndpoints(ctx context.Context, svcKey types.NamespacedName, port intstr.IntOrString) ([]NodePortEndpoint, bool, error) {
+	svc, svcPort, err := r.findServiceAndServicePort(ctx, svcKey, port)
+	if err != nil {
+		return nil, false, err
+	}
+
+	podEndpoints, containsPotentialReadyEndpoints, err := r.resolvePodEndpoints(ctx, svc, svcPort)
+	if err != nil {
+		return nil, containsPotentialReadyEndpoints, err
+	}
+
+	eps, err := r.transPodEndpointsToEnis(podEndpoints)
+	if err != nil {
+		return nil, containsPotentialReadyEndpoints, err
+	}
+	return eps, containsPotentialReadyEndpoints, nil
+}
+
+func (r *defaultEndpointResolver) ResolveLocalEndpoints(ctx context.Context, svcKey types.NamespacedName, port intstr.IntOrString) ([]NodePortEndpoint, bool, error) {
+	svc, svcPort, err := r.findServiceAndServicePort(ctx, svcKey, port)
+	if err != nil {
+		return nil, false, err
+	}
+
+	podEndPoints, containsPotentialReadyEndpoints, err := r.resolvePodEndpoints(ctx, svc, svcPort)
+	if err != nil {
+		return nil, containsPotentialReadyEndpoints, err
+	}
+
+	svcNodePort := svcPort.NodePort
+
+	reqCtx := &svcctrl.RequestContext{
+		Ctx:     ctx,
+		Service: svc,
+		Anno:    &svcctrl.AnnotationRequest{Service: svc},
+		Log:     r.logger,
+	}
+	nodes, err := svcctrl.GetNodes(reqCtx, r.k8sClient)
+	if err != nil {
+		return nil, containsPotentialReadyEndpoints, err
+	}
+	nodesByName := nodesByName(nodes)
+
+	ecsEndpoints := make([]NodePortEndpoint, 0)
+	eciEndpoints := make([]PodEndpoint, 0)
+
+	for _, podEndPoint := range podEndPoints {
+		if podEndPoint.NodeName == nil {
+			return nil, containsPotentialReadyEndpoints, errors.New("empty node name")
+		}
+
+		node, ok := nodesByName[*podEndPoint.NodeName]
+		if !ok {
+			continue
+		}
+
+		if node.Labels["type"] == util.LabelNodeTypeVK {
+			eciEndpoints = append(eciEndpoints, podEndPoint)
+			continue
+		}
+
+		if helper.HasExcludeLabel(&node) {
+			continue
+		}
+
+		id, err := r.getInstanceIdByNode(node)
+		if err != nil {
+			return nil, containsPotentialReadyEndpoints, err
+		}
+
+		ecsEndpoints = append(ecsEndpoints, buildNodePortEndpoint(id, "", int(svcNodePort), alb.ECSBackendType, util.DefaultServerWeight, podEndPoint.Pod))
+	}
+
+	if len(eciEndpoints) != 0 {
+		eniEps, err := r.transPodEndpointsToEnis(eciEndpoints)
+		if err != nil {
+			return nil, containsPotentialReadyEndpoints, err
+		}
+		ecsEndpoints = append(ecsEndpoints, eniEps...)
+	}
+
+	return RemoteDuplicatedBackends(ecsEndpoints), containsPotentialReadyEndpoints, nil
+}
+
+func (r *defaultEndpointResolver) ResolveClusterEndpoints(ctx context.Context, svcKey types.NamespacedName, port intstr.IntOrString) ([]NodePortEndpoint, bool, error) {
+	svc, svcPort, err := r.findServiceAndServicePort(ctx, svcKey, port)
+	if err != nil {
+		return nil, false, err
+	}
+
+	podEndPoints, containsPotentialReadyEndpoints, err := r.resolvePodEndpoints(ctx, svc, svcPort)
+	if err != nil {
+		return nil, containsPotentialReadyEndpoints, err
+	}
+
+	svcNodePort := svcPort.NodePort
+	reqCtx := &svcctrl.RequestContext{
+		Ctx:     ctx,
+		Service: svc,
+		Anno:    &svcctrl.AnnotationRequest{Service: svc},
+		Log:     r.logger,
+	}
+	nodes, err := svcctrl.GetNodes(reqCtx, r.k8sClient)
+	if err != nil {
+		return nil, containsPotentialReadyEndpoints, err
+	}
+	nodesByName := nodesByName(nodes)
+
+	ecsEndpoints := make([]NodePortEndpoint, 0)
+	for _, node := range nodes {
+		if helper.HasExcludeLabel(&node) {
+			continue
+		}
+		id, err := r.getInstanceIdByNode(node)
+		if err != nil {
+			return nil, containsPotentialReadyEndpoints, err
+		}
+
+		ecsEndpoints = append(ecsEndpoints, buildNodePortEndpoint(id, "", int(svcNodePort), alb.ECSBackendType, util.DefaultServerWeight, nil))
+	}
+
+	eciEndpoints := make([]PodEndpoint, 0)
+	for _, podEndPoint := range podEndPoints {
+		if podEndPoint.NodeName == nil {
+			return nil, containsPotentialReadyEndpoints, errors.New("empty node name")
+		}
+
+		node, ok := nodesByName[*podEndPoint.NodeName]
+		if !ok {
+			continue
+		}
+
+		if node.Labels["type"] == util.LabelNodeTypeVK {
+			eciEndpoints = append(eciEndpoints, podEndPoint)
+		}
+	}
+
+	if len(eciEndpoints) != 0 {
+		eniEndpointsFromEci, err := r.transPodEndpointsToEnis(eciEndpoints)
+		if err != nil {
+			return nil, containsPotentialReadyEndpoints, err
+		}
+		ecsEndpoints = append(ecsEndpoints, eniEndpointsFromEci...)
+	}
+
+	return ecsEndpoints, containsPotentialReadyEndpoints, nil
+}
+
+func nodesByName(nodes []corev1.Node) map[string]corev1.Node {
+	nodesByName := make(map[string]corev1.Node)
+	for _, node := range nodes {
+		nodesByName[node.Name] = node
+	}
+	return nodesByName
+}
+
+func (r *defaultEndpointResolver) getInstanceIdByNode(node corev1.Node) (string, error) {
+	vpcId, err := r.cloud.VpcID()
+	if err != nil {
+		return "", fmt.Errorf("get vpc id from metadata error:%s", err.Error())
+	}
+	ip := ""
+	for _, addr := range node.Status.Addresses {
+		if addr.Type == "InternalIP" {
+			ip = addr.Address
+			break
+		}
+	}
+	if ip == "" {
+		return "", fmt.Errorf("get privateIp from node error: node.statu.addresses.type = internalIP not exist")
+	}
+	regionId, err := r.cloud.Region()
+	if err != nil {
+		return "", fmt.Errorf("get region id from metadata error:%s", err.Error())
+	}
+
+	r.loadNodeMutex.Lock()
+	defer r.loadNodeMutex.Unlock()
+
+	cacheKey := fmt.Sprintf("%s.%s.%s", regionId, vpcId, ip)
+	if rawCacheItem, ok := r.nodeCache.Get(cacheKey); ok {
+		return rawCacheItem.(string), nil
+	}
+
+	instancesList, err := r.cloud.GetInstanceByIp(ip, regionId, vpcId)
+	if err != nil || len(instancesList) < 1 {
+		return "", fmt.Errorf("the corresponding instance cannot be found;region=%s,vpc=%s,ip=%s", regionId, vpcId, ip)
+	}
+	instanceId := instancesList[0].InstanceId
+	r.nodeCache.Set(cacheKey, instanceId, r.nodeCacheTTL)
+
+	return instanceId, nil
+}
+
+func (r *defaultEndpointResolver) transPodEndpointsToEnis(backends []PodEndpoint) ([]NodePortEndpoint, error) {
+	vpcId, err := r.cloud.VpcID()
+	if err != nil {
+		return nil, fmt.Errorf("get vpc id from metadata error:%s", err.Error())
+	}
+
+	var ips []string
+	for _, b := range backends {
+		ips = append(ips, b.IP)
+	}
+
+	result, err := r.cloud.DescribeNetworkInterfaces(vpcId, ips, pkgModel.IPv4)
+	if err != nil {
+		return nil, fmt.Errorf("call DescribeNetworkInterfaces: %s", err.Error())
+	}
+	var nodePortEndpoints []NodePortEndpoint
+	for i := range backends {
+		eniid, ok := result[backends[i].IP]
+		if !ok {
+			return nil, fmt.Errorf("can not find eniid for ip %s in vpc %s", backends[i].IP, vpcId)
+		}
+		// for ENI backend type, port should be set to targetPort (default value), no need to update
+		nodePortEndpoints = append(nodePortEndpoints, buildNodePortEndpoint(eniid, backends[i].IP, backends[i].Port, alb.ENIBackendType, util.DefaultServerWeight, backends[i].Pod))
+	}
+
+	return nodePortEndpoints, nil
+
+}
+
+func buildPodEndpoint(epAddr corev1.EndpointAddress, port int, pod *corev1.Pod) PodEndpoint {
+	return PodEndpoint{
+		IP:       epAddr.IP,
+		Port:     port,
+		NodeName: epAddr.NodeName,
+		Pod:      pod,
+	}
+}
+
+func buildNodePortEndpoint(instanceID string, serverIP string, port int, tp string, weight int, pod *corev1.Pod) NodePortEndpoint {
+	nodePortEndpoint := NodePortEndpoint{
+		ServerId: instanceID,
+		ServerIp: serverIP,
+		Weight:   weight,
+		Port:     port,
+		Type:     tp,
+		Pod:      pod,
+	}
+	return nodePortEndpoint
+}
+
+func LookupServicePort(svc *corev1.Service, port intstr.IntOrString) (corev1.ServicePort, error) {
+	if port.Type == intstr.String {
+		for _, p := range svc.Spec.Ports {
+			if p.Name == port.StrVal {
+				return p, nil
+			}
+		}
+	} else {
+		for _, p := range svc.Spec.Ports {
+			if p.Port == port.IntVal {
+				return p, nil
+			}
+		}
+	}
+
+	return corev1.ServicePort{}, errors.Errorf("unable to find port %s on service %s", port.String(), util.NamespacedName(svc))
+}
+
+func RemoteDuplicatedBackends(backends []NodePortEndpoint) []NodePortEndpoint {
+	nodeMap := make(map[string]struct{})
+	var uniqBackends []NodePortEndpoint
+	for _, backend := range backends {
+		if _, ok := nodeMap[backend.ServerId]; ok {
+			continue
+		}
+		nodeMap[backend.ServerId] = struct{}{}
+		uniqBackends = append(uniqBackends, backend)
+	}
+	return uniqBackends
+}

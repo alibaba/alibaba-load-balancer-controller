@@ -214,7 +214,7 @@ spec:
     spec:
       containers:
         - command:
-            - /cloud-controller-manager
+            - /load-controller-manager
             - --cloud-config=/etc/kubernetes/config/cloud-config.conf
             - --controllers=ingress
             - --leader-elect-resource-name=alb

@@ -1,79 +1,79 @@
-# 开发文档
+# Developer guide
 
-Alibaba Load Balancer Controller项目的使用镜像部署，需要按照Dockerfile构建镜像，并使用部署Kubernetes的标准Deployment进行部署，可以通过多副本进行容灾。接下来介绍如何从源码进行controller的部署；本文采用本机编译源码，推送到远程仓库中，在Kubernetes集群中配置镜像进行部署操作。
+Before you deploy an image for Alibaba Load Balancer Controller, you must create an image based on Dockerfile. When you deploy an image for Alibaba Load Balancer Controller, the standard Kubernetes Deployment requirements must be met. You can deploy multiple images to implement disaster recovery. This topic describes how to deploy an image for Alibaba Load Balancer Controller by using the source code. In this topic, the source code is complied on an on-premises machine and is delivered to a remote depository. Then, you can deploy the image in a Kubernetes cluster.
 
-## 前提依赖
+## Prerequisites
 
-- golang 1.17 编译器或镜像，用来编译源码
-- docker desktop或同样用于构建镜像的 podman工具
-- 本机和集群都能链接的私有镜像仓库，如[阿里云容器镜像服务](https://cr.console.aliyun.com/cn-beijing/instances)
-- 可以链接使用的kubernetes 1.20版本以上集群
+- The Golang 1.17 compiler or image is prepared to compile the source code.
+- Docker Desktop or a podman tool is prepared to build an image.
+- A private image repository that can be connected to an on-premises machine or a Kubernetes cluster is created, such as a [Container Registry](https://cr.console.aliyun.com/cn-beijing/instances) repository.
+- The version of the Kubernetes cluster is 1.20 or later.
 
 
 
-## 构建
+## Build an image
 
-项目使用go vendor进行依赖管理，可能存在依赖不匹配问题，在获取到项目后，可以执行vendor指令获取依赖
+Alibaba Load Balancer Controller uses Go vendor to manage dependencies. If the dependencies do not match, you can run the vendor command to obtain the dependencies.
 
-1. 【可选】依赖管理
+1. Optional. Manage dependencies
 
    ```
    go mod vendor
    ```
 
-2. 编译二进制
+2. Compile the binary code.
 
    ```
    go build -o bin/load-controller-manager cmd/manager/main.go
    ```
 
-3. 【可选】如果本机的架构和集群的架构不同，可以采用go的交叉编译，构建跨平台镜像
+3. Optional. If the on-premises machine and the cluster use different architectures, you can use cross-compiling of Go to build a cross-platform image.
 
    ```
    GOOS=linux GOARCH=amd64 go build -o bin/load-controller-manager cmd/manager/main.go
    ```
 
-4. 提前获取一个基础镜像
+4. Obtain a base image in advance.
 
    ```
    docker pull docker.io/library/alpine:3.11.6
    ```
 
-5. 基于已有二进制构建镜像，可以用下面的Dockerfile文件
+5. Use the following Dockerfile to build an image based on the existing binary code.
 
    ```
    FROM alpine:3.11.6
-   
+
    # Do not use docker multiple stage build until we
    # figure a way out how to solve build cache problem under 'go mod'.
    #
-   
+
    RUN apk add --no-cache --update ca-certificates
-   
+
    COPY bin/load-controller-manager /load-controller-manager
-   
+
    ENTRYPOINT  ["/load-controller-manager"]
    ```
 
-6. 执行构建指令，注意要在项目主目录执行下面的指令
+6. Run the following command in the root directory of the project.
 
    ```
    docker build -f /path/to/your/Dockerfile . -t ${region}/${namespce}/alb:${tag}
    ```
 
-7. 推送的私有镜像仓库
+7. The private image repository that is delivered
 
    ```
    docker push ${region}/${namespce}/alb:${tag}
    ```
 
-上述过程可以通过一个Dockerfile进行，已经放在了项目中，因为存在些公司内部环境的依赖，不同开发者可能需要的并不相同，可以按照上述过程构建符合个人需求的构建过程。
+You can perform the preceding operations in a Dockerfile that is placed in the project. Alternatively, you can build an image by using different dependencies based on your requirements.
 
-## 部署
+## Deployment
 
-Alibaba Load Balancer Controller的部署采用标准的Kubernetes Deployment资源进行部署，Controller运行需要其他资源依赖
+When you deploy an image for Alibaba Load Balancer Controller, the standard Kubernetes Deployment requirements must be met. Before you run Alibaba Load Balancer Controller, additional dependencies are required.
 
-1. Controller基于RBAC对集群资源进行监控，需要分别创建ServiceAccount、ClusterRoleBinding、ClusterRole创建资源
+1. Alibaba Load Balancer Controller monitors cluster resources based on RBAC. You must create the following resources: ServiceAccount, ClusterRoleBinding, and ClusterRole.
 
    ```yaml
    apiVersion: rbac.authorization.k8s.io/v1
@@ -258,7 +258,7 @@ Alibaba Load Balancer Controller的部署采用标准的Kubernetes Deployment资
        namespace: kube-system
    ```
 
-2. Controller运行需要配置文件，可以采用命令行或配置文件的方式，这里我们采用ConfigMap挂载配置文件的方式
+2. Before you run Alibaba Load Balancer Controller, you must configure relevant files or run the corresponding commands. In this example, the relevant files are configured by using ConfigMap.
 
    ```yaml
    apiVersion: v1
@@ -270,13 +270,13 @@ Alibaba Load Balancer Controller的部署采用标准的Kubernetes Deployment资
      cloud-config.conf: |-
        {
            "Global": {
-               "AccessKeyID": "VndV***", # 需要base64编码
-               "AccessKeySecret": "UWU0NnUyTFdhcG***" # 需要base64编码
+               "AccessKeyID": "VndV***", # Base64 encoding is required.
+               "AccessKeySecret": "UWU0NnUyTFdhcG***" # Base64 encoding is required.
            }
        }
    ```
 
-3. Deployment文件的部署和运行指令参考以下文件
+3. Refer to the following file to deploy and run the Deployment file.
 
    ```yaml
    apiVersion: apps/v1
@@ -363,4 +363,4 @@ Alibaba Load Balancer Controller的部署采用标准的Kubernetes Deployment资
              name: cloud-config
    ```
 
-上述过程统一放在 deploy/vv1/load-balancer-controller.yaml 中，方便直接使用
+Perform the preceding operations in the deploy/vv1/load-balancer-controller.yaml directory.

@@ -1,12 +1,11 @@
-FROM --platform=$BUILDPLATFORM golang:1.17 as builder
-ADD . /build
-WORKDIR /build/
-ARG TARGETOS
-ARG TARGETARCH
-RUN make cloud-controller-manager
+FROM alpine:3.11.6
 
-FROM registry.cn-hangzhou.aliyuncs.com/acs/alpine:3.13-update
-RUN apk add --no-cache --update bash ca-certificates
-COPY --from=builder /build/bin/cloud-controller-manager /cloud-controller-manager
+# Do not use docker multiple stage build until we
+# figure a way out how to solve build cache problem under 'go mod'.
+#
 
-ENTRYPOINT  ["/cloud-controller-manager"]
+RUN apk add --no-cache --update ca-certificates
+
+COPY bin/load-controller-manager /load-controller-manager
+
+ENTRYPOINT  ["/load-controller-manager"]

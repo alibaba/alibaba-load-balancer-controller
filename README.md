@@ -10,8 +10,8 @@ Alibaba Load Balancer Controller is a cloud-native controller that allows you to
 
 ## Start
 
-- [Quick start](docs/getting-started.md)
-- [User guide](docs/usage.md)
+- [Quick start](docs/dev.md)
+- [User guide](docs/getting-started.md)
 
 
 

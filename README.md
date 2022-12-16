@@ -1,23 +1,33 @@
 # Alibaba Load Balancer Controller
 
-Alibaba Load Balancer Controller is a cloud-native controller used to use Alibaba Cloud Load Balancer products in self-built Kubernetes clusters on the cloud.
+Alibaba Load Balancer Controller is a cloud-native controller that allows you to use the ALB service in self-managed Kubernetes clusters.
 
-- Create AlbConfig resources through CRD, manage ALB instances and watch resources;
-- Automatically create Listeners and related Forwarding Rules by watching Ingress
-- Associate the backend server group with the Ingress Backend Service, and the node changes are synchronized to the cloud
+- You can manage ALB instances and listener resources by using CRD to create AlbConfig resources.
+- Use listener Ingresses to automatically create listeners and forwarding rules.
+- Associate backend server groups with the Ingress Backend Service. Node changes are synchronized to the cloud.
 
-## start
 
-- [Getting Start]( )
-- [Usage]()
 
-## development
+## Start
 
-- Execute e2e tests on existing use cases to ensure normal historical functions `make test`
-- Build images for Kubernetes cluster deployment ` make image`
+- [Quick start]()
+- [User guide]()
 
-## Comminicate
 
-- For ALB product features, please refer to [official website document](https://help.aliyun.com/document_detail/196881.html)
 
-- If you have problems during use, you can raise an issue
+## Development
+
+
+
+- Perform e2e tests on existing staging scenarios to make sure that the features are working as expected. `make test`
+- Build application images for Kubernetes clusters. ` make image`
+
+
+
+## Communication
+
+
+
+- For more information about ALB features, see [Official documentation](https://help.aliyun.com/document_detail/196881.html).
+
+- If you have questions, submit issues.

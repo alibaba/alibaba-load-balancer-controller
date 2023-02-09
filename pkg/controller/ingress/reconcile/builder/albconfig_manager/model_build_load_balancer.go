@@ -119,6 +119,12 @@ func (t *defaultModelBuildTask) buildAlbLoadBalancerSpec(ctx context.Context, al
 	if lbModel.LoadBalancerEdition == "" {
 		lbModel.LoadBalancerEdition = util.LoadBalancerEditionStandard
 	}
+	lbModel.Tags = []alb.ALBTag{
+		{
+			Key:   "github.com/alibaba/alibaba-load-balancer-controller",
+			Value: "v1.0.0",
+		},
+	}
 	return lbModel, nil
 }
 

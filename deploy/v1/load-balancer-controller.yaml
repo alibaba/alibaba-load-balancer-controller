@@ -216,7 +216,7 @@ spec:
         - command:
             - /load-controller-manager
             - --cloud-config=/etc/kubernetes/config/cloud-config.conf
-            - --controllers=ingress
+            - --controllers=ingress,service
             - --leader-elect-resource-name=alb
             - --configure-cloud-routes=false
           image: registry.cn-beijing.aliyuncs.com/wg/alb:pure-ctl

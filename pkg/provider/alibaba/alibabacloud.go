@@ -8,6 +8,7 @@ import (
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/base"
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/cas"
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/ecs"
+	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/nlb"
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/sls"
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/vpc"
 	"k8s.io/alibaba-load-balancer-controller/pkg/util/metric"
@@ -34,6 +35,7 @@ func NewAlibabaCloud() prvd.Provider {
 		ECSProvider: ecs.NewECSProvider(mgr),
 		VPCProvider: vpc.NewVPCProvider(mgr),
 		ALBProvider: alb.NewALBProvider(mgr),
+		NLBProvider: nlb.NewNLBProvider(mgr),
 		SLSProvider: sls.NewSLSProvider(mgr),
 		CASProvider: cas.NewCASProvider(mgr),
 	}
@@ -45,6 +47,7 @@ type AlibabaCloud struct {
 	*ecs.ECSProvider
 	*vpc.VPCProvider
 	*alb.ALBProvider
+	*nlb.NLBProvider
 	*sls.SLSProvider
 	*cas.CASProvider
 	prvd.IMetaData

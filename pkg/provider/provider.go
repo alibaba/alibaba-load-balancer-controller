@@ -7,6 +7,8 @@ import (
 	"k8s.io/alibaba-load-balancer-controller/pkg/controller/ingress/reconcile/tracking"
 
 	albmodel "k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
+	nlbmodel "k8s.io/alibaba-load-balancer-controller/pkg/model/nlb"
+	"k8s.io/alibaba-load-balancer-controller/pkg/model/tag"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/responses"
@@ -24,6 +26,7 @@ type Provider interface {
 	IInstance
 	IVPC
 	IALB
+	INLB
 	ISLS
 	ICAS
 }
@@ -142,4 +145,34 @@ type IALB interface {
 	DeleteAcl(ctx context.Context, listenerID, sdkAclID string) error
 	ListAcl(ctx context.Context, listener *albmodel.Listener, aclId string) ([]alb.Acl, error)
 	ListAclEntriesByID(traceID interface{}, sdkAclID string) ([]alb.AclEntry, error)
+}
+
+type INLB interface {
+	//Tag
+	TagNLBResource(ctx context.Context, resourceId string, resourceType nlbmodel.TagResourceType, tags []tag.Tag) error
+	ListNLBTagResources(ctx context.Context, lbId string) ([]tag.Tag, error)
+	// NetworkLoadBalancer
+	FindNLB(ctx context.Context, mdl *nlbmodel.NetworkLoadBalancer) error
+	DescribeNLB(ctx context.Context, mdl *nlbmodel.NetworkLoadBalancer) error
+	CreateNLB(ctx context.Context, mdl *nlbmodel.NetworkLoadBalancer) error
+	DeleteNLB(ctx context.Context, mdl *nlbmodel.NetworkLoadBalancer) error
+	UpdateNLB(ctx context.Context, mdl *nlbmodel.NetworkLoadBalancer) error
+	UpdateNLBAddressType(ctx context.Context, mdl *nlbmodel.NetworkLoadBalancer) error
+	UpdateNLBZones(ctx context.Context, mdl *nlbmodel.NetworkLoadBalancer) error
+
+	// ServerGroup
+	ListNLBServerGroups(ctx context.Context, tags []tag.Tag) ([]*nlbmodel.ServerGroup, error)
+	CreateNLBServerGroup(ctx context.Context, sg *nlbmodel.ServerGroup) error
+	DeleteNLBServerGroup(ctx context.Context, sgId string) error
+	UpdateNLBServerGroup(ctx context.Context, sg *nlbmodel.ServerGroup) error
+	AddNLBServers(ctx context.Context, sgId string, backends []nlbmodel.ServerGroupServer) error
+	RemoveNLBServers(ctx context.Context, sgId string, backends []nlbmodel.ServerGroupServer) error
+	UpdateNLBServers(ctx context.Context, sgId string, backends []nlbmodel.ServerGroupServer) error
+
+	// Listener
+	ListNLBListeners(ctx context.Context, lbId string) ([]*nlbmodel.ListenerAttribute, error)
+	CreateNLBListener(ctx context.Context, lbId string, lis *nlbmodel.ListenerAttribute) error
+	UpdateNLBListener(ctx context.Context, lis *nlbmodel.ListenerAttribute) error
+	DeleteNLBListener(ctx context.Context, listenerId string) error
+	StartNLBListener(ctx context.Context, listenerId string) error
 }

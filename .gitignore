@@ -5,4 +5,4 @@ coverage.txt
 alicloud-controller-manager
 /.circleci/
 /alibaba-load-balancer-controller.iml
-/bin/cloud-controller-manager
+/bin/load-controller-manager

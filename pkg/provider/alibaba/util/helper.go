@@ -3,6 +3,9 @@ package util
 import (
 	"fmt"
 	"strings"
+
+	"github.com/alibabacloud-go/tea/tea"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/errors"
 )
 
 // A PaginationResponse represents a response with pagination information
@@ -59,4 +62,28 @@ func NodeFromProviderID(providerID string) (string, string, error) {
 
 func ProviderIDFromInstance(region, instance string) string {
 	return fmt.Sprintf("%s.%s", region, instance)
+}
+
+func SDKError(api string, err error) error {
+	if err == nil {
+		return err
+	}
+	switch err := err.(type) {
+	case *tea.SDKError:
+		if err == nil || err.Message == nil {
+			return err
+		}
+		attr := strings.Split(tea.StringValue(err.Message), "request id:")
+		if len(attr) < 2 {
+			return err
+		}
+		err.SetErrMsg(fmt.Sprintf("[SDKError] API: %s,StatusCode: %d, ErrorCode: %s, RequestId: %s, Message: %s",
+			api, tea.IntValue(err.StatusCode), tea.StringValue(err.Code), attr[1], attr[0]))
+		return err
+	case *errors.ServerError:
+		return fmt.Errorf("[SDKError] API: %s, ErrorCode: %s, RequestId: %s, Message: %s",
+			api, err.ErrorCode(), err.RequestId(), err.Message())
+	default:
+		return err
+	}
 }

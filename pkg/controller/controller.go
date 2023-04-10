@@ -5,12 +5,14 @@ import (
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/context/shared"
 	"k8s.io/alibaba-load-balancer-controller/pkg/controller/ingress"
+	"k8s.io/alibaba-load-balancer-controller/pkg/controller/service"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 func init() {
 	controllerMap = map[string]func(manager.Manager, *shared.SharedContext) error{
 		"ingress": ingress.Add,
+		"service": service.Add,
 	}
 }
 

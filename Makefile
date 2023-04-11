@@ -15,13 +15,13 @@
 .EXPORT_ALL_VARIABLES:
 
 # settings
-REGISTRY?=registry.cn-hangzhou.aliyuncs.com/acs/cloud-controller-manager-amd64
-MULTI_ARCH_REGISTRY?=registry.cn-hangzhou.aliyuncs.com/acs/cloud-controller-manager
+REGISTRY?=slb-registry.cn-beijing.cr.aliyuncs.com/alb/load-balancer-controller
+MULTI_ARCH_REGISTRY?=slb-registry.cn-beijing.cr.aliyuncs.com/alb/load-balancer-controller
 TAG?=$(shell git describe --tags)
 
 REPO_ROOT:=${CURDIR}
 OUT_DIR=$(REPO_ROOT)/bin
-KIND_BINARY_NAME?=cloud-controller-manager
+KIND_BINARY_NAME?=load-balancer-controller
 
 # go
 TARGETOS?=linux
@@ -35,9 +35,9 @@ GIT_COMMIT=$(shell git rev-parse HEAD)
 BUILD_DATE=$(shell date +%Y-%m-%dT%H:%M:%S%z)
 ldflags="-s -w -X $(VERSION_PKG).Version=$(TAG) -X $(VERSION_PKG).GitCommit=${GIT_COMMIT} -X ${VERSION_PKG}.BuildDate=${BUILD_DATE}"
 
-.PHONY: cloud-controller-manager
-cloud-controller-manager: gofmt
-	@echo + Building cloud-controller-manager binary
+.PHONY: load-controller-manager
+load-controller-manager: gofmt
+	@echo + Building load-balancer-controller binary
 	GOARCH=${TARGETARCH} \
 	GOOS=${TARGETOS} \
 	CGO_ENABLED=0 \
@@ -45,7 +45,7 @@ cloud-controller-manager: gofmt
 	GOPROXY=${GOPROXY} \
 	go build -mod vendor -v -o $(OUT_DIR)/$(KIND_BINARY_NAME) \
 		    -ldflags $(ldflags) cmd/manager/main.go
-	@echo + Built cloud-controller-manager binary to $(OUT_DIR)/$(KIND_BINARY_NAME)
+	@echo + Built load-balancer-controller binary to $(OUT_DIR)/$(KIND_BINARY_NAME)
 
 .PHONY: image
 image:
@@ -69,36 +69,6 @@ ifeq ($(TARGETPLATFORM),linux/amd64)
 else
 	docker push $(MULTI_ARCH_REGISTRY):$(TAG)
 endif
-
-.PHONY: ccm-mac, ccm-linux, ccm-win, ccm-arm64
-ccm-mac:
-	GOARCH=amd64 \
-	GOOS=darwin \
-	CGO_ENABLED=0 \
-	GO111MODULE=on \
-	go build -mod vendor -v -o build/bin/cloud-controller-manager \
-       -ldflags $(ldflags) cmd/manager/main.go
-ccm-linux:
-	GOARCH=amd64 \
-	GOOS=linux \
-	CGO_ENABLED=0 \
-	GO111MODULE=on \
-	go build -mod vendor -v -o build/bin/cloud-controller-manager.amd64 \
-       -ldflags $(ldflags) cmd/manager/main.go
-ccm-win:
-	GOARCH=amd64 \
-	GOOS=windows \
-	CGO_ENABLED=0 \
-	GO111MODULE=on \
-	go build -mod vendor -v -o build/bin/cloud-controller-manager.exe \
-       -ldflags $(ldflags) cmd/manager/main.go
-ccm-arm64:
-	GOARCH=arm64 \
-	GOOS=linux \
-	CGO_ENABLED=0 \
-	GO111MODULE=on \
-	go build -mod vendor -v -o build/bin/cloud-controller-manager.arm64 \
-       -ldflags $(ldflags) cmd/manager/main.go
 
 .PHONY: check
 check: gofmt golint

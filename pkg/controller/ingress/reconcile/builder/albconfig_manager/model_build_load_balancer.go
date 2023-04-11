@@ -8,6 +8,7 @@ import (
 	"regexp"
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/util"
+	"k8s.io/alibaba-load-balancer-controller/version"
 
 	v1 "k8s.io/alibaba-load-balancer-controller/pkg/apis/alibabacloud/v1"
 	"k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
@@ -119,10 +120,14 @@ func (t *defaultModelBuildTask) buildAlbLoadBalancerSpec(ctx context.Context, al
 	if lbModel.LoadBalancerEdition == "" {
 		lbModel.LoadBalancerEdition = util.LoadBalancerEditionStandard
 	}
+	tagValue := version.Version
+	if tagValue == "" {
+		tagValue = "unkown"
+	}
 	lbModel.Tags = []alb.ALBTag{
 		{
-			Key:   "github.com/alibaba/alibaba-load-balancer-controller",
-			Value: "v1.0.0",
+			Key:   util.AlibabaLoadBalancerControllerTagKey,
+			Value: tagValue,
 		},
 	}
 	return lbModel, nil

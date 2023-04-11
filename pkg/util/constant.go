@@ -201,6 +201,8 @@ const (
 	IngressNameTagKey      = IngressTagKeyPrefix + "/ingress_name"
 
 	AlbConfigTagKey = "albconfig"
+
+	AlibabaLoadBalancerControllerTagKey = "github.com/alibaba/alibaba-load-balancer-controller"
 )
 
 const (

@@ -10,6 +10,8 @@ import (
 	nlbmodel "k8s.io/alibaba-load-balancer-controller/pkg/model/nlb"
 	"k8s.io/alibaba-load-balancer-controller/pkg/model/tag"
 	prvd "k8s.io/alibaba-load-balancer-controller/pkg/provider"
+	"k8s.io/alibaba-load-balancer-controller/pkg/util"
+	"k8s.io/alibaba-load-balancer-controller/version"
 )
 
 func NewNLBManager(cloud prvd.Provider) *NLBManager {
@@ -47,6 +49,15 @@ func (mgr *NLBManager) BuildLocalModel(reqCtx *svcCtx.RequestContext, mdl *nlbmo
 	mdl.LoadBalancerAttribute.Name = reqCtx.Anno.Get(annotation.LoadBalancerName)
 
 	mdl.LoadBalancerAttribute.Tags = reqCtx.Anno.GetLoadBalancerAdditionalTags()
+
+	tagValue := version.Version
+	if tagValue == "" {
+		tagValue = "unkown"
+	}
+	mdl.LoadBalancerAttribute.Tags = append(mdl.LoadBalancerAttribute.Tags, tag.Tag{
+		Key:   util.AlibabaLoadBalancerControllerTagKey,
+		Value: tagValue,
+	})
 	return nil
 }
 

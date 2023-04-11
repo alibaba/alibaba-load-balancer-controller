@@ -6,6 +6,6 @@ FROM alpine:3.11.6
 
 RUN apk add --no-cache --update ca-certificates
 
-COPY bin/load-controller-manager /load-controller-manager
+COPY bin/load-balancer-controller /load-balancer-controller
 
-ENTRYPOINT  ["/load-controller-manager"]
+ENTRYPOINT  ["/load-balancer-controller"]

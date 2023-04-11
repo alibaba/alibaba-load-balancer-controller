@@ -214,12 +214,12 @@ spec:
     spec:
       containers:
         - command:
-            - /load-controller-manager
+            - /load-balancer-controller
             - --cloud-config=/etc/kubernetes/config/cloud-config.conf
             - --controllers=ingress,service
             - --leader-elect-resource-name=alb
             - --configure-cloud-routes=false
-          image: registry.cn-beijing.aliyuncs.com/wg/alb:pure-ctl
+          image: ${path/to/your/image/registry}
           imagePullPolicy: Always
           livenessProbe:
             failureThreshold: 8

@@ -35,8 +35,8 @@ GIT_COMMIT=$(shell git rev-parse HEAD)
 BUILD_DATE=$(shell date +%Y-%m-%dT%H:%M:%S%z)
 ldflags="-s -w -X $(VERSION_PKG).Version=$(TAG) -X $(VERSION_PKG).GitCommit=${GIT_COMMIT} -X ${VERSION_PKG}.BuildDate=${BUILD_DATE}"
 
-.PHONY: load-controller-manager
-load-controller-manager: gofmt
+.PHONY: load-balancer-controller
+load-balancer-controller: gofmt
 	@echo + Building load-balancer-controller binary
 	GOARCH=${TARGETARCH} \
 	GOOS=${TARGETOS} \

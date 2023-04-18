@@ -28,9 +28,8 @@ import (
 )
 
 var (
-	errInvalidIngressGroup = errors.New("invalid ingress group")
-	DefaultGroupName       = "default"
-	ALBConfigNamespace     = "kube-system"
+	DefaultGroupName   = "default"
+	ALBConfigNamespace = "kube-system"
 )
 
 type GroupID types.NamespacedName

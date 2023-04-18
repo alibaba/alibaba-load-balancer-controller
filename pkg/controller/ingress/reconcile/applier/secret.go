@@ -121,10 +121,16 @@ func matchResAndSDKCertificates(resCerts []*albmodel.SecretCertificate, sdkCerts
 
 	resCertNames := sets.StringKeySet(resCertsByName)
 	sdkCertNames := sets.StringKeySet(sdkCertsByName)
-	for _, name := range resCertNames.Intersection(sdkCertNames).List() {
+
+	// multi res certi when use same secret on diff listen
+	for _, cert := range resCerts {
+		sdkCert := sdkCertsByName[cert.Spec.CertName]
+		if sdkCert == nil {
+			continue
+		}
 		matchedResAndSDKCerts = append(matchedResAndSDKCerts, resAndSDKCertificatePair{
-			ResCert: resCertsByName[name],
-			SdkCert: sdkCertsByName[name],
+			ResCert: cert,
+			SdkCert: *sdkCert,
 		})
 	}
 
@@ -133,7 +139,7 @@ func matchResAndSDKCertificates(resCerts []*albmodel.SecretCertificate, sdkCerts
 	}
 
 	for _, name := range sdkCertNames.Difference(resCertNames).List() {
-		unmatchedSDKCerts = append(unmatchedSDKCerts, sdkCertsByName[name])
+		unmatchedSDKCerts = append(unmatchedSDKCerts, *sdkCertsByName[name])
 	}
 
 	return matchedResAndSDKCerts, unmatchedResCerts, unmatchedSDKCerts
@@ -146,10 +152,10 @@ func mapResCertByName(resCerts []*albmodel.SecretCertificate) map[string]*albmod
 	}
 	return resCertsByName
 }
-func mapSDKCertByName(sdkCerts []cassdk.CertificateInfo) map[string]cassdk.CertificateInfo {
-	sdkCertsByName := make(map[string]cassdk.CertificateInfo)
-	for _, cert := range sdkCerts {
-		sdkCertsByName[cert.CertName] = cert
+func mapSDKCertByName(sdkCerts []cassdk.CertificateInfo) map[string]*cassdk.CertificateInfo {
+	sdkCertsByName := make(map[string]*cassdk.CertificateInfo)
+	for i, cert := range sdkCerts {
+		sdkCertsByName[cert.CertName] = &sdkCerts[i]
 	}
 	return sdkCertsByName
 }

@@ -63,6 +63,7 @@ func (b defaultAlbConfigManagerBuilder) Build(ctx context.Context, albconfig *v1
 		vpcID:     vpcID,
 
 		sgpByResID:      make(map[string]*alb.ServerGroup),
+		scByResID:       make(map[string]*alb.SecretCertificate),
 		backendServices: make(map[types.NamespacedName]*corev1.Service),
 
 		annotationParser: annotations.NewSuffixAnnotationParser(annotations.DefaultAnnotationsPrefix),
@@ -98,6 +99,7 @@ type defaultModelBuildTask struct {
 	vpcID     string
 
 	sgpByResID map[string]*alb.ServerGroup
+	scByResID  map[string]*alb.SecretCertificate
 
 	annotationParser annotations.Parser
 	certDiscovery    CertDiscovery
@@ -155,6 +157,17 @@ func removeDuplicateElement(elements []string) []string {
 	}
 	return result
 }
+func removeDuplicateSecretCertificate(elements []*alb.SecretCertificate) []*alb.SecretCertificate {
+	result := make([]*alb.SecretCertificate, 0, len(elements))
+	temp := map[string]struct{}{}
+	for _, element := range elements {
+		if _, ok := temp[element.Spec.CertName]; !ok {
+			temp[element.Spec.CertName] = struct{}{}
+			result = append(result, element)
+		}
+	}
+	return result
+}
 
 func (t *defaultModelBuildTask) run(ctx context.Context) error {
 	if !t.albconfig.DeletionTimestamp.IsZero() {
@@ -200,62 +213,64 @@ func (t *defaultModelBuildTask) run(ctx context.Context) error {
 		if !ok {
 			continue
 		}
-		if pp.protocol == ProtocolHTTPS {
-			if len(ls.Spec.Certificates) == 0 {
-				var certs []alb.Certificate
-				var certsAuto []alb.Certificate
-				var certsSecr []alb.Certificate
-				for _, ing := range ingList {
-					var missHosts []string
-					var secretHosts []string
-					for _, tls := range ing.Spec.TLS {
-						if tls.SecretName != "" {
-							cert, err := t.buildSecretCertificate(ctx, ing, tls.SecretName, t.clusterID)
-							if err != nil {
-								klog.Errorf("build SecretCertificate by secret failed, error: %s", err.Error())
-								return err
-							}
-							certsSecr = append(certsSecr, cert)
-							secretHosts = append(secretHosts, tls.Hosts...)
-						} else {
-							missHosts = append(missHosts, tls.Hosts...)
-						}
-					}
-					for _, rule := range ing.Spec.Rules {
-						if rule.Host != "" {
-							missHosts = append(missHosts, rule.Host)
-						}
-					}
-					hosts := getStringsDiff(missHosts, secretHosts)
-					if len(hosts) > 0 {
-						certIds, err := t.computeHostsInferredTLSCertIDs(ctx, hosts)
-						if err != nil {
-							klog.Errorf("computeIngressInferredTLSCertARNs error: %s", err.Error())
-							return err
-						}
-						certIds = removeDuplicateElement(certIds)
-						sort.Strings(certIds)
-						for _, cid := range certIds {
-							cert := &alb.FixedCertificate{
-								IsDefault:     false,
-								CertificateId: cid,
-							}
-							certsAuto = append(certsAuto, cert)
-						}
-					}
-				}
-				certs = append(certs, certsAuto...)
-				certs = append(certs, certsSecr...)
-				if len(certs) > 0 {
-					certs[0].SetDefault()
-				}
-				lss[pp.port].Spec.ListenerProtocol = string(ProtocolHTTPS)
-				lss[pp.port].Spec.Certificates = certs
-			}
-		}
 		if err := t.buildListenerRules(ctx, ls.ListenerID(), pp.port, ingList); err != nil {
 			return err
 		}
+		if pp.protocol != ProtocolHTTPS {
+			continue
+		}
+		var certsSecCert []*alb.SecretCertificate
+		var missHosts []string
+		var secretHosts []string
+		for _, ing := range ingList {
+			for _, tls := range ing.Spec.TLS {
+				if tls.SecretName != "" {
+					cert, err := t.buildSecretCertificate(ctx, pp.port, ing, tls.SecretName, t.clusterID)
+					if err != nil {
+						klog.Errorf("build SecretCertificate by secret failed, error: %s", err.Error())
+						return err
+					}
+					certsSecCert = append(certsSecCert, cert)
+					secretHosts = append(secretHosts, tls.Hosts...)
+				} else {
+					missHosts = append(missHosts, tls.Hosts...)
+				}
+			}
+		}
+		var certsSecr []alb.Certificate
+		certsSecCert = removeDuplicateSecretCertificate(certsSecCert)
+		for _, sc := range certsSecCert {
+			certsSecr = append(certsSecr, sc)
+		}
+
+		var certsFixed []alb.Certificate
+		hosts := getStringsDiff(missHosts, secretHosts)
+		if len(ls.Spec.Certificates) != 0 || len(hosts) == 0 {
+			certsFixed = ls.Spec.Certificates
+		} else {
+			certIds, err := t.computeHostsInferredTLSCertIDs(ctx, hosts)
+			if err != nil {
+				klog.Errorf("computeIngressInferredTLSCertARNs error: %s", err.Error())
+				return err
+			}
+			certsID := removeDuplicateElement(certIds)
+			sort.Strings(certsID)
+			for _, cid := range certsID {
+				cert := &alb.FixedCertificate{
+					IsDefault:     false,
+					CertificateId: cid,
+				}
+				certsFixed = append(certsFixed, cert)
+			}
+		}
+		var certs []alb.Certificate
+		certs = append(certs, certsFixed...)
+		certs = append(certs, certsSecr...)
+		if len(certs) > 0 {
+			certs[0].SetDefault()
+		}
+		lss[pp.port].Spec.ListenerProtocol = string(pp.protocol)
+		lss[pp.port].Spec.Certificates = certs
 	}
 
 	for _, ls := range lss {

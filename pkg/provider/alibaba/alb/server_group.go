@@ -45,6 +45,9 @@ func (m *ALBProvider) CreateALBServerGroup(ctx context.Context, resSGP *alb.Serv
 		"elapsedTime", time.Since(startTime).Milliseconds(),
 		util.Action, util.CreateALBServerGroup)
 
+	if err := m.waitServerGroupStatus(ctx, createSgpResp.ServerGroupId); err != nil {
+		return alb.ServerGroupStatus{}, err
+	}
 	sgpTags := trackingProvider.ResourceTags(resSGP.Stack(), resSGP, transTagListToMap(resSGP.Spec.Tags))
 	tags := transTagMapToSDKTagResourcesTagList(sgpTags)
 	resIDs := make([]string, 0)
@@ -83,6 +86,33 @@ func (m *ALBProvider) CreateALBServerGroup(ctx context.Context, resSGP *alb.Serv
 		util.Action, util.TagALBResource)
 
 	return buildReServerGroupStatus(createSgpResp.ServerGroupId), nil
+}
+
+func (m *ALBProvider) waitServerGroupStatus(ctx context.Context, serverGroupID string) error {
+	if serverGroupID == "" {
+		return fmt.Errorf("serverGroupID is empty")
+	}
+	sgpReq := albsdk.CreateListServerGroupsRequest()
+	sgpIds := []string{serverGroupID}
+	sgpReq.ServerGroupIds = &sgpIds
+	for i := 0; i < util.CreateServerGroupWaitActiveMaxRetryTimes; i++ {
+		time.Sleep(util.CreateServerGroupWaitActiveRetryInterval)
+		sgpListResp, err := m.auth.ALB.ListServerGroups(sgpReq)
+		if err != nil {
+			return err
+		}
+		if sgpListResp.TotalCount == 0 {
+			return fmt.Errorf("ServerGroupID: %s not exist", serverGroupID)
+		}
+		sgpResp := sgpListResp.ServerGroups[0]
+		if isServerGroupAvailable(sgpResp.ServerGroupStatus) {
+			return nil
+		}
+	}
+	return fmt.Errorf("ServerGroupID: %s not ready", serverGroupID)
+}
+func isServerGroupAvailable(status string) bool {
+	return strings.EqualFold(status, util.ServerGroupStatusAvailable)
 }
 
 func (m *ALBProvider) UpdateALBServerGroup(ctx context.Context, resSGP *alb.ServerGroup, sdkSGP alb.ServerGroupWithTags) (alb.ServerGroupStatus, error) {

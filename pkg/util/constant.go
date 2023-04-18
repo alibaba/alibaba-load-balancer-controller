@@ -104,6 +104,8 @@ const (
 	ListenerStatusStopped      = "Stopped"
 
 	AclStatusAvailable = "Available"
+
+	ServerGroupStatusAvailable = "Available"
 )
 
 const (
@@ -119,6 +121,9 @@ const (
 
 	CreateListenerWaitRunningMaxRetryTimes = 15
 	CreateListenerWaitRunningRetryInterval = 1 * time.Second
+
+	CreateServerGroupWaitActiveMaxRetryTimes = 10
+	CreateServerGroupWaitActiveRetryInterval = 1 * time.Second
 )
 
 const (

@@ -15,8 +15,8 @@
 .EXPORT_ALL_VARIABLES:
 
 # settings
-REGISTRY?=slb-registry.cn-beijing.cr.aliyuncs.com/alb/load-balancer-controller
-MULTI_ARCH_REGISTRY?=slb-registry.cn-beijing.cr.aliyuncs.com/alb/load-balancer-controller
+REGISTRY?=alibabacloudslb/alibaba-load-balancer-controller
+MULTI_ARCH_REGISTRY?=alibabacloudslb/alibaba-load-balancer-controller
 TAG?=$(shell git describe --tags)
 
 REPO_ROOT:=${CURDIR}

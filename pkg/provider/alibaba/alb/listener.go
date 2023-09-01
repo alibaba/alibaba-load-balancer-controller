@@ -947,8 +947,23 @@ func buildSDKCertificates(ctx context.Context, modelCerts []albmodel.Certificate
 
 	var defaultSDKCerts []albsdk.Certificate
 	var extraSDKCerts []albsdk.Certificate
+	certIdCertMap := map[string]albmodel.Certificate{}
+	// default cert first
 	for _, cert := range modelCerts {
 		certId, _ := cert.GetCertificateId(ctx)
+		if cert.GetIsDefault() {
+			certIdCertMap[certId] = cert
+		}
+	}
+	for _, cert := range modelCerts {
+		certId, _ := cert.GetCertificateId(ctx)
+		if _, exist := certIdCertMap[certId]; exist {
+			continue
+		}
+		certIdCertMap[certId] = cert
+	}
+
+	for certId, cert := range certIdCertMap {
 		if cert.GetIsDefault() {
 			defaultSDKCerts = append(defaultSDKCerts, albsdk.Certificate{
 				IsDefault:     cert.GetIsDefault(),

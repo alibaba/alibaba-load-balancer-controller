@@ -9,6 +9,8 @@ import (
 type ALBLoadBalancerSpec struct {
 	AddressAllocatedMode         string                       `json:"AddressAllocatedMode" xml:"AddressAllocatedMode"`
 	AddressType                  string                       `json:"AddressType" xml:"AddressType"`
+	Ipv6AddressType              string                       `json:"V6AddressType" xml:"V6AddressType"`
+	AddressIpVersion             string                       `json:"AddressIpVersion" xml:"AddressIpVersion"`
 	DNSName                      string                       `json:"DNSName" xml:"DNSName"`
 	LoadBalancerEdition          string                       `json:"LoadBalancerEdition" xml:"LoadBalancerEdition"`
 	LoadBalancerId               string                       `json:"LoadBalancerId" xml:"LoadBalancerId"`
@@ -24,6 +26,7 @@ type ALBLoadBalancerSpec struct {
 	LoadBalancerOperationLocks   []LoadBalancerOperationLock  `json:"LoadBalancerOperationLocks" xml:"LoadBalancerOperationLocks"`
 	Tags                         []ALBTag                     `json:"Tags" xml:"Tags"`
 	ZoneMapping                  []ZoneMapping                `json:"ZoneMapping" xml:"ZoneMapping"`
+	ListenerForceOverride        *bool                        `json:"ListenerForceOverride" xml:"ListenerForceOverride"`
 }
 
 type ALBListenerSpec struct {
@@ -52,20 +55,23 @@ type ALBListenerRuleSpec struct {
 	RuleStatus     string      `json:"RuleStatus" xml:"RuleStatus"`
 	RuleActions    []Action    `json:"RuleActions" xml:"RuleActions"`
 	RuleConditions []Condition `json:"RuleConditions" xml:"RuleConditions"`
+	RuleDirection  string      `json:"RuleDirection" xml:"RuleDirection"`
 }
 
 type ALBServerGroupSpec struct {
-	Protocol            string              `json:"Protocol" xml:"Protocol"`
-	ResourceGroupId     string              `json:"ResourceGroupId" xml:"ResourceGroupId"`
-	Scheduler           string              `json:"Scheduler" xml:"Scheduler"`
-	ServerGroupId       string              `json:"ServerGroupId" xml:"ServerGroupId"`
-	ServerGroupName     string              `json:"ServerGroupName" xml:"ServerGroupName"`
-	ServerGroupStatus   string              `json:"ServerGroupStatus" xml:"ServerGroupStatus"`
-	ServerGroupType     string              `json:"ServerGroupType" xml:"ServerGroupType"`
-	VpcId               string              `json:"VpcId" xml:"VpcId"`
-	HealthCheckConfig   HealthCheckConfig   `json:"HealthCheckConfig" xml:"HealthCheckConfig"`
-	StickySessionConfig StickySessionConfig `json:"StickySessionConfig" xml:"StickySessionConfig"`
-	Tags                []ALBTag            `json:"Tags" xml:"Tags"`
+	Protocol                 string              `json:"Protocol" xml:"Protocol"`
+	ResourceGroupId          string              `json:"ResourceGroupId" xml:"ResourceGroupId"`
+	Scheduler                string              `json:"Scheduler" xml:"Scheduler"`
+	ServerGroupId            string              `json:"ServerGroupId" xml:"ServerGroupId"`
+	ServerGroupName          string              `json:"ServerGroupName" xml:"ServerGroupName"`
+	ServerGroupStatus        string              `json:"ServerGroupStatus" xml:"ServerGroupStatus"`
+	ServerGroupType          string              `json:"ServerGroupType" xml:"ServerGroupType"`
+	VpcId                    string              `json:"VpcId" xml:"VpcId"`
+	HealthCheckConfig        HealthCheckConfig   `json:"HealthCheckConfig" xml:"HealthCheckConfig"`
+	StickySessionConfig      StickySessionConfig `json:"StickySessionConfig" xml:"StickySessionConfig"`
+	Tags                     []ALBTag            `json:"Tags" xml:"Tags"`
+	UpstreamKeepaliveEnabled bool                `json:"UpstreamKeepaliveEnabled" xml:"UpstreamKeepaliveEnabled"`
+	UchConfig                UchConfig           `json:"UchConfig" xml:"UchConfig"`
 }
 
 type AccessLogConfig struct {
@@ -80,6 +86,7 @@ type LoadBalancerBillingConfig struct {
 	InternetBandwidth  int    `json:"InternetBandwidth" xml:"InternetBandwidth"`
 	InternetChargeType string `json:"InternetChargeType" xml:"InternetChargeType"`
 	PayType            string `json:"PayType" xml:"PayType"`
+	BandWidthPackageId string `json:"BandWidthPackageId" xml:"BandWidthPackageId"`
 }
 type ModificationProtectionConfig struct {
 	Reason string `json:"Reason" xml:"Reason"`
@@ -99,6 +106,8 @@ type ZoneMapping struct {
 	VSwitchId             string                `json:"VSwitchId" xml:"VSwitchId"`
 	ZoneId                string                `json:"ZoneId" xml:"ZoneId"`
 	LoadBalancerAddresses []LoadBalancerAddress `json:"LoadBalancerAddresses" xml:"LoadBalancerAddresses"`
+	AllocationId          string                `json:"AllocationId" xml:"AllocationId"`
+	EipType               string                `json:"EipType" xml:"EipType"`
 }
 type LoadBalancerAddress struct {
 	Address string `json:"Address" xml:"Address"`
@@ -129,6 +138,7 @@ type StickySessionConfig struct {
 
 type Certificate interface {
 	SetDefault()
+	UnsetDefault()
 	GetIsDefault() bool
 	GetCertificateId(ctx context.Context) (string, error)
 }
@@ -162,6 +172,11 @@ type XForwardedForConfig struct {
 	XForwardedForClientCertClientVerifyEnabled bool   `json:"XForwardedForClientCertClientVerifyEnabled" xml:"XForwardedForClientCertClientVerifyEnabled"`
 }
 
+type UchConfig struct {
+	Type  string `json:"Type" xml:"Type"`
+	Value string `json:"Value" xml:"Value"`
+}
+
 type Action struct {
 	Order               int                  `json:"Order" xml:"Order"`
 	Type                string               `json:"Type" xml:"Type"`
@@ -173,6 +188,7 @@ type Action struct {
 	RewriteConfig       *RewriteConfig       `json:"RewriteConfig" xml:"RewriteConfig"`
 	TrafficMirrorConfig *TrafficMirrorConfig `json:"TrafficMirrorConfig" xml:"TrafficMirrorConfig"`
 	TrafficLimitConfig  *TrafficLimitConfig  `json:"TrafficLimitConfig" xml:"TrafficLimitConfig"`
+	CorsConfig          *CorsConfig          `json:"CorsConfig" xml:"CorsConfig"`
 }
 
 type ServerGroupTuple struct {
@@ -220,16 +236,31 @@ type TrafficMirrorConfig struct {
 	TargetType        string            `json:"TargetType" xml:"TargetType"`
 	MirrorGroupConfig MirrorGroupConfig `json:"MirrorGroupConfig" xml:"MirrorGroupConfig"`
 }
+type TrafficMirrorServerGroupTuple struct {
+	ServerGroupID string `json:"serverGroupID"`
+	ServiceName   string `json:"serviceName"`
+	ServicePort   int    `json:"servicePort"`
+	Weight        int    `json:"weight,omitempty"`
+}
 type MirrorGroupConfig struct {
-	ServerGroupTuples []ServerGroupTuple `json:"ServerGroupTuples" xml:"ServerGroupTuples"`
+	ServerGroupTuples []TrafficMirrorServerGroupTuple `json:"ServerGroupTuples" xml:"ServerGroupTuples"`
 }
 type TrafficLimitConfig struct {
-	QPS int `json:"QPS" xml:"QPS"`
+	QPS      int `json:"QPS" xml:"QPS"`
+	PerIpQps int `json:"PerIpQps" xml:"PerIpQps"`
 }
 type FixedResponseConfig struct {
 	Content     string `json:"Content" xml:"Content"`
 	ContentType string `json:"ContentType" xml:"ContentType"`
 	HttpCode    string `json:"HttpCode" xml:"HttpCode"`
+}
+type CorsConfig struct {
+	AllowCredentials string   `json:"AllowCredentials" xml:"AllowCredentials"`
+	MaxAge           string   `json:"MaxAge" xml:"MaxAge"`
+	AllowOrigin      []string `json:"AllowOrigin" xml:"AllowOrigin"`
+	AllowMethods     []string `json:"AllowMethods" xml:"AllowMethods"`
+	AllowHeaders     []string `json:"AllowHeaders" xml:"AllowHeaders"`
+	ExposeHeaders    []string `json:"ExposeHeaders" xml:"ExposeHeaders"`
 }
 
 type Condition struct {

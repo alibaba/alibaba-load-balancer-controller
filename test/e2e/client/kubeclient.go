@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/alibaba-load-balancer-controller/pkg/controller/helper"
 	appv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -129,9 +130,56 @@ func (client *KubeClient) DefaultIngress() *networkingv1.Ingress {
 	}
 }
 
+func (client *KubeClient) DefaultIngressWithSvcName(svcName string) *networkingv1.Ingress {
+	ingressClassName := "alb"
+	pathTypePrefix := networkingv1.PathTypePrefix
+	return &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      svcName + "-ingress",
+			Namespace: Namespace,
+		},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: &ingressClassName,
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: "alb.ingress.alibaba.com",
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{
+								{
+									Path:     "/",
+									PathType: &pathTypePrefix,
+									Backend: networkingv1.IngressBackend{
+										Service: &networkingv1.IngressServiceBackend{
+
+											Name: svcName,
+											Port: networkingv1.ServiceBackendPort{
+												Number: 80,
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 func (client *KubeClient) CreateServiceByAnno(anno map[string]string) (*v1.Service, error) {
 	svc := client.DefaultService()
 	svc.Annotations = anno
+	return client.CoreV1().Services(Namespace).Create(context.TODO(), svc, metav1.CreateOptions{})
+}
+
+func (client *KubeClient) CreateNLBServiceByAnno(anno map[string]string) (*v1.Service, error) {
+	svc := client.DefaultService()
+	lbClass := helper.NLBClass
+	svc.Spec.LoadBalancerClass = &lbClass
+	svc.Annotations = anno
+
 	return client.CoreV1().Services(Namespace).Create(context.TODO(), svc, metav1.CreateOptions{})
 }
 
@@ -160,6 +208,28 @@ func (client *KubeClient) CreateIngress(ing *networkingv1.Ingress) (*networkingv
 		return nil, fmt.Errorf("ingress is nil")
 	}
 	return client.NetworkingV1().Ingresses(Namespace).Create(context.TODO(), ing, metav1.CreateOptions{})
+}
+
+func (client *KubeClient) CreateNLBServiceWithStringTargetPort(anno map[string]string) (*v1.Service, error) {
+	lbClass := helper.NLBClass
+	svc := client.DefaultService()
+	svc.Annotations = anno
+	svc.Spec.LoadBalancerClass = &lbClass
+	svc.Spec.Ports = []v1.ServicePort{
+		{
+			Name:       "http",
+			Port:       80,
+			TargetPort: intstr.FromString("http"),
+			Protocol:   v1.ProtocolTCP,
+		},
+		{
+			Name:       "https",
+			Port:       443,
+			TargetPort: intstr.FromString("https"),
+			Protocol:   v1.ProtocolTCP,
+		},
+	}
+	return client.CoreV1().Services(Namespace).Create(context.TODO(), svc, metav1.CreateOptions{})
 }
 
 func (client *KubeClient) CreateService(svc *v1.Service) (*v1.Service, error) {
@@ -209,9 +279,52 @@ func (client *KubeClient) CreateServiceWithoutSelector(anno map[string]string) (
 	return client.CoreV1().Services(Namespace).Create(context.TODO(), svc, metav1.CreateOptions{})
 }
 
+func (client *KubeClient) CreateNLBServiceWithoutSelector(anno map[string]string) (*v1.Service, error) {
+	lbClass := helper.NLBClass
+	svc := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        Service,
+			Namespace:   Namespace,
+			Annotations: anno,
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{
+				{
+					Name:       "http",
+					Port:       80,
+					TargetPort: intstr.FromInt(80),
+					Protocol:   v1.ProtocolTCP,
+				},
+				{
+					Name:       "https",
+					Port:       443,
+					TargetPort: intstr.FromInt(80),
+					Protocol:   v1.ProtocolTCP,
+				},
+			},
+			Type:              v1.ServiceTypeLoadBalancer,
+			LoadBalancerClass: &lbClass,
+		},
+	}
+
+	return client.CoreV1().Services(Namespace).Create(context.TODO(), svc, metav1.CreateOptions{})
+}
+
 func (client *KubeClient) DeleteService() error {
-	return wait.PollImmediate(3*time.Second, time.Minute, func() (done bool, err error) {
+	return wait.PollImmediate(3*time.Second, 5*time.Minute, func() (done bool, err error) {
 		err = client.CoreV1().Services(Namespace).Delete(context.TODO(), Service, metav1.DeleteOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+}
+
+func (client *KubeClient) DeleteServiceByName(name string) error {
+	return wait.PollImmediate(3*time.Second, 3*time.Minute, func() (done bool, err error) {
+		err = client.CoreV1().Services(Namespace).Delete(context.TODO(), name, metav1.DeleteOptions{})
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				return true, nil
@@ -286,18 +399,25 @@ func (client *KubeClient) CreateEndpointsWithNotExistNode() (*v1.Endpoints, erro
 // deployment
 func (client *KubeClient) CreateDeployment() error {
 	var replica int32 = 3
+	test_image := "ack-asi-ci-registry.cn-hongkong.cr.aliyuncs.com/chorus-public/nginx-multiarch:latest"
+	if IsDomesticRegion() {
+		test_image = "ack-asi-ci-registry.cn-hangzhou.cr.aliyuncs.com/chorus-public/nginx-multiarch:latest"
+	}
+
 	nginx := &appv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      Deployment,
 			Namespace: Namespace,
 			Labels: map[string]string{
 				"run": "nginx",
+				"app": "nginx",
 			},
 		},
 		Spec: appv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					"run": "nginx",
+					"app": "nginx",
 				},
 			},
 			Replicas: &replica,
@@ -305,14 +425,15 @@ func (client *KubeClient) CreateDeployment() error {
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
 						"run": "nginx",
+						"app": "nginx",
 					},
 				},
 				Spec: v1.PodSpec{
 					Containers: []v1.Container{
 						{
 							Name:            "nginx",
-							Image:           "nginx:1.9.7",
-							ImagePullPolicy: "Always",
+							Image:           test_image,
+							ImagePullPolicy: v1.PullIfNotPresent,
 							Ports: []v1.ContainerPort{
 								{
 									Name:          "http",
@@ -499,4 +620,161 @@ func (client *KubeClient) DeleteNamespace() error {
 			}
 			return false, nil
 		})
+}
+
+// node
+func (client *KubeClient) LabelNode(nodeName string, key string, value string) error {
+	return wait.PollImmediate(2*time.Second, time.Minute, func() (done bool, err error) {
+		n, err := client.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
+		n.ObjectMeta.Labels[key] = value
+		_, err = client.CoreV1().Nodes().Update(context.TODO(), n, metav1.UpdateOptions{})
+		if err != nil {
+			return false, nil
+		}
+		return true, nil
+	})
+}
+
+func (client *KubeClient) UnLabelNode(nodeName string, key string) error {
+	return wait.PollImmediate(2*time.Second, time.Minute, func() (done bool, err error) {
+		n, err := client.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
+		delete(n.ObjectMeta.Labels, key)
+		_, err = client.CoreV1().Nodes().Update(context.TODO(), n, metav1.UpdateOptions{})
+		if err != nil {
+			return false, nil
+		}
+		return true, nil
+	})
+}
+
+func (client *KubeClient) UnscheduledNode(nodeName string) error {
+	return wait.PollImmediate(2*time.Second, time.Minute, func() (done bool, err error) {
+		n, err := client.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
+		if err != nil || n == nil {
+			return false, nil
+		}
+		n.Spec.Unschedulable = true
+		_, err = client.CoreV1().Nodes().Update(context.TODO(), n, metav1.UpdateOptions{})
+		if err != nil {
+			return false, nil
+		}
+		return true, nil
+	})
+
+}
+
+func (client *KubeClient) ScheduledNode(nodeName string) error {
+	return wait.PollImmediate(2*time.Second, time.Minute, func() (done bool, err error) {
+		n, err := client.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
+		if err != nil || n == nil {
+			return false, nil
+		}
+		n.Spec.Unschedulable = false
+		_, err = client.CoreV1().Nodes().Update(context.TODO(), n, metav1.UpdateOptions{})
+		if err != nil {
+			return false, nil
+		}
+		return true, nil
+	})
+
+}
+
+func (client *KubeClient) AddTaint(nodeName string, taint v1.Taint) error {
+	return wait.PollImmediate(2*time.Second, 30*time.Second, func() (done bool, err error) {
+		n, err := client.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		for _, taint := range n.Spec.Taints {
+			if taint.Key == taint.Key {
+				return true, nil
+			}
+		}
+		n.Spec.Taints = append(n.Spec.Taints, taint)
+		_, err = client.CoreV1().Nodes().Update(context.TODO(), n, metav1.UpdateOptions{})
+		if err != nil {
+			return false, nil
+		}
+		return true, nil
+	})
+}
+
+func (client *KubeClient) RemoveTaint(nodeName string, taint v1.Taint) error {
+	return wait.PollImmediate(2*time.Second, 30*time.Second, func() (done bool, err error) {
+		n, err := client.CoreV1().Nodes().Get(context.TODO(), nodeName, metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+		var updateTaints []v1.Taint
+		for _, t := range n.Spec.Taints {
+			if t.Key == taint.Key {
+				continue
+			}
+			updateTaints = append(updateTaints, t)
+		}
+		_, err = client.CoreV1().Nodes().Update(context.TODO(), n, metav1.UpdateOptions{})
+		if err != nil {
+			return false, nil
+		}
+		return true, nil
+	})
+}
+
+func (client *KubeClient) ListNodes() ([]v1.Node, error) {
+	nodeList, err := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return nodeList.Items, nil
+}
+
+func (client *KubeClient) GetLatestNode() (*v1.Node, error) {
+	nodeList, err := client.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	if len(nodeList.Items) == 0 {
+		return nil, nil
+	}
+
+	var ret v1.Node
+	for _, node := range nodeList.Items {
+		if helper.HasExcludeLabel(&node) {
+			continue
+		}
+		if _, exclude := node.Labels[helper.LabelNodeExcludeBalancer]; exclude {
+			continue
+		}
+		if _, isVK := node.Labels[helper.LabelNodeTypeVK]; isVK {
+			continue
+		}
+		if ret.Name == "" {
+			ret = node
+		} else if ret.CreationTimestamp.Before(&node.CreationTimestamp) {
+			ret = node
+		}
+	}
+	klog.Infof("return node:%s", ret.Name)
+	return &ret, nil
+}
+
+func (client *KubeClient) PatchNodeStatus(oldNode, newNode *v1.Node) (*v1.Node, error) {
+	oldStr, _ := json.Marshal(oldNode)
+	newStr, _ := json.Marshal(newNode)
+	patchBytes, patchErr := strategicpatch.CreateTwoWayMergePatch(oldStr, newStr, &v1.Node{})
+	if patchErr != nil {
+		return nil, fmt.Errorf("create merge patch: %s", patchErr.Error())
+	}
+	return client.CoreV1().Nodes().PatchStatus(context.TODO(), oldNode.Name, patchBytes)
+}
+
+func (client *KubeClient) PatchNode(oldNode, newNode *v1.Node) (*v1.Node, error) {
+	oldStr, _ := json.Marshal(oldNode)
+	newStr, _ := json.Marshal(newNode)
+	patchBytes, patchErr := strategicpatch.CreateTwoWayMergePatch(oldStr, newStr, &v1.Node{})
+	if patchErr != nil {
+		return nil, fmt.Errorf("create merge patch: %s", patchErr.Error())
+	}
+	return client.CoreV1().Nodes().Patch(context.TODO(), oldNode.Name,
+		types.StrategicMergePatchType, patchBytes, metav1.PatchOptions{})
 }

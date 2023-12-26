@@ -1,9 +1,10 @@
 package base
 
 import (
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	ctrlCfg "k8s.io/alibaba-load-balancer-controller/pkg/config"
-	"testing"
 )
 
 func TestVswitchID(t *testing.T) {

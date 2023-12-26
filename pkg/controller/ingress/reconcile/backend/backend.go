@@ -8,7 +8,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/go-logr/logr"
-	svchelper "k8s.io/alibaba-load-balancer-controller/pkg/controller/helper/service"
+	"k8s.io/alibaba-load-balancer-controller/pkg/controller/helper"
 	"k8s.io/alibaba-load-balancer-controller/pkg/controller/ingress/reconcile/store"
 	"k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
 	prvd "k8s.io/alibaba-load-balancer-controller/pkg/provider"
@@ -46,22 +46,22 @@ func (mgr *Manager) BuildServicePortSDKBackends(ctx context.Context, svcKey type
 		containsPotentialReadyEndpoints bool
 	)
 
-	policy, err := svchelper.GetServiceTrafficPolicy(svc)
+	policy, err := helper.GetServiceTrafficPolicy(svc)
 	if err != nil {
 		return nil, false, err
 	}
 	switch policy {
-	case svchelper.ENITrafficPolicy:
+	case helper.ENITrafficPolicy:
 		endpoints, containsPotentialReadyEndpoints, err = mgr.ResolveENIEndpoints(ctx, util.NamespacedName(svc), port)
 		if err != nil {
 			return modelBackends, containsPotentialReadyEndpoints, err
 		}
-	case svchelper.LocalTrafficPolicy:
+	case helper.LocalTrafficPolicy:
 		endpoints, containsPotentialReadyEndpoints, err = mgr.ResolveLocalEndpoints(ctx, util.NamespacedName(svc), port)
 		if err != nil {
 			return modelBackends, containsPotentialReadyEndpoints, err
 		}
-	case svchelper.ClusterTrafficPolicy:
+	case helper.ClusterTrafficPolicy:
 		endpoints, containsPotentialReadyEndpoints, err = mgr.ResolveClusterEndpoints(ctx, util.NamespacedName(svc), port)
 		if err != nil {
 			return modelBackends, containsPotentialReadyEndpoints, err

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -395,7 +394,7 @@ func (vpc *MetaDataRequest) send() (string, error) {
 	}
 	defer resp.Body.Close()
 
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
@@ -584,7 +583,7 @@ func (m *CfgMetaData) RamRoleToken(role string) (prvd.RoleAuth, error) {
 
 func (m *CfgMetaData) ClusterID() string {
 	if ctrlCfg.CloudCFG.Global.ClusterID != "" {
-		CLUSTER_ID = ctrlCfg.CloudCFG.Global.ClusterID
+		return ctrlCfg.CloudCFG.Global.ClusterID
 	}
 	return CLUSTER_ID
 }

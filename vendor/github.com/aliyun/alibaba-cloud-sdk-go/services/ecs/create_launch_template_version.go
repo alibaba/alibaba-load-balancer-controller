@@ -123,6 +123,7 @@ type CreateLaunchTemplateVersionRequest struct {
 	SystemDiskSize                 requests.Integer                               `position:"Query" name:"SystemDisk.Size"`
 	VpcId                          string                                         `position:"Query" name:"VpcId"`
 	SystemDiskDescription          string                                         `position:"Query" name:"SystemDisk.Description"`
+	SystemDiskEncrypted            string                                         `position:"Query" name:"SystemDisk.Encrypted"`
 }
 
 // CreateLaunchTemplateVersionTag is a repeated param struct in CreateLaunchTemplateVersionRequest
@@ -164,6 +165,7 @@ type CreateLaunchTemplateVersionResponse struct {
 	*responses.BaseResponse
 	LaunchTemplateVersionNumber int64  `json:"LaunchTemplateVersionNumber" xml:"LaunchTemplateVersionNumber"`
 	RequestId                   string `json:"RequestId" xml:"RequestId"`
+	LaunchTemplateId            string `json:"LaunchTemplateId" xml:"LaunchTemplateId"`
 }
 
 // CreateCreateLaunchTemplateVersionRequest creates a request to invoke CreateLaunchTemplateVersion API

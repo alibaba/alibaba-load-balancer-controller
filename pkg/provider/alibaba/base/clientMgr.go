@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,8 +30,6 @@ import (
 	openapi "github.com/alibabacloud-go/darabonba-openapi/v2/client"
 	"github.com/alibabacloud-go/tea/tea"
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/auth/credentials"
-
-	"k8s.io/klog/v2/klogr"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk"
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/alb"
@@ -42,6 +41,7 @@ import (
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/sls"
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/vpc"
 	"github.com/go-cmd/cmd"
+	"k8s.io/klog/v2/klogr"
 
 	nlb "github.com/alibabacloud-go/nlb-20220430/client"
 	ctrlCfg "k8s.io/alibaba-load-balancer-controller/pkg/config"
@@ -158,6 +158,7 @@ func NewClientMgr() (*ClientMgr, error) {
 	esscli.AppendUserAgent(KubernetesCloudControllerManager, version.Version)
 	esscli.AppendUserAgent(AgentClusterId, CLUSTER_ID)
 
+	// new sdk
 	nlbcli, err := nlb.NewClient(openapiCfg(region, credential))
 	if err != nil {
 		return nil, fmt.Errorf("initialize alibaba nlb client: %s", err.Error())
@@ -260,6 +261,7 @@ func RefreshToken(mgr *ClientMgr, token *Token) error {
 		AccessKeySecret:   token.AccessSecret,
 		AccessKeyStsToken: token.Token,
 	}
+
 	err := mgr.ECS.InitWithOptions(token.Region, clientCfg(), credential)
 	if err != nil {
 		return fmt.Errorf("init ecs sts token config: %s", err.Error())
@@ -296,6 +298,7 @@ func RefreshToken(mgr *ClientMgr, token *Token) error {
 	}
 
 	err = mgr.NLB.Init(openapiCfg(token.Region, credential))
+
 	if err != nil {
 		return fmt.Errorf("init nlb sts token config: %s", err.Error())
 	}
@@ -303,6 +306,8 @@ func RefreshToken(mgr *ClientMgr, token *Token) error {
 	if ctrlCfg.ControllerCFG.NetWork == "vpc" {
 		setVPCEndpoint(mgr)
 	}
+
+	setCustomizedEndpoint(mgr)
 
 	return nil
 }
@@ -317,6 +322,34 @@ func setVPCEndpoint(mgr *ClientMgr) {
 	mgr.CAS.Network = "vpc"
 	mgr.NLB.Network = tea.String("vpc")
 }
+
+func setCustomizedEndpoint(mgr *ClientMgr) {
+	if ecsEndpoint, err := parseURL(os.Getenv("ECS_ENDPOINT")); err == nil && ecsEndpoint != "" {
+		mgr.ECS.Domain = ecsEndpoint
+	}
+	if vpcEndpoint, err := parseURL(os.Getenv("VPC_ENDPOINT")); err == nil && vpcEndpoint != "" {
+		mgr.VPC.Domain = vpcEndpoint
+	}
+	if slbEndpoint, err := parseURL(os.Getenv("SLB_ENDPOINT")); err == nil && slbEndpoint != "" {
+		mgr.SLB.Domain = slbEndpoint
+	}
+}
+
+func parseURL(str string) (string, error) {
+	if str == "" {
+		return "", nil
+	}
+
+	if !strings.HasPrefix(str, "http") {
+		str = "http://" + str
+	}
+	u, err := url.Parse(str)
+	if err != nil {
+		return "", err
+	}
+	return u.Host, nil
+}
+
 func clientCfg() *sdk.Config {
 	scheme := "HTTPS"
 	if os.Getenv("ALICLOUD_CLIENT_SCHEME") == "HTTP" {
@@ -417,7 +450,6 @@ func (f *ServiceToken) NextToken() (*Token, error) {
 		fmt.Sprintf("--uid=%s", ctrlCfg.CloudCFG.Global.UID),
 		fmt.Sprintf("--key=%s", key),
 		fmt.Sprintf("--secret=%s", secret),
-		fmt.Sprintf("--region=%s", f.svcak.Region),
 	).Start()
 	if status.Error != nil {
 		return nil, fmt.Errorf("invoke servicetoken: %s", status.Error.Error())

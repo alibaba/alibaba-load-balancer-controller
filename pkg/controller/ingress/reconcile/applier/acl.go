@@ -15,12 +15,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-func NewAclApplier(albProvider prvd.Provider, trackingProvider tracking.TrackingProvider, stack core.Manager, logger logr.Logger) *aclApplier {
+func NewAclApplier(albProvider prvd.Provider, trackingProvider tracking.TrackingProvider, stack core.Manager, logger logr.Logger, errRes core.ErrResult) *aclApplier {
 	return &aclApplier{
 		albProvider:      albProvider,
 		trackingProvider: trackingProvider,
 		stack:            stack,
 		logger:           logger,
+		errRes:           errRes,
 	}
 }
 
@@ -29,6 +30,13 @@ type aclApplier struct {
 	trackingProvider tracking.TrackingProvider
 	stack            core.Manager
 	logger           logr.Logger
+	errRes           core.ErrResult
+}
+
+type MatchResAndSDKAcl struct {
+	MatchedResAndSDKAcls []alb.ResAndSDKAclPair
+	UnmatchedResAcls     []*alb.Acl
+	UnmatchedSDKAcls     []albsdk.Acl
 }
 
 func (s *aclApplier) Apply(ctx context.Context) error {
@@ -54,7 +62,12 @@ func (s *aclApplier) Apply(ctx context.Context) error {
 		chSynthesize  = make(chan struct{}, util.ListenerConcurrentNum)
 	)
 
-	for lsID := range resLSsByLsID {
+	for lsID, resLS := range resLSsByLsID {
+		err := s.errRes.CheckErrMsgsByListenerPort(resLS.Spec.ListenerPort)
+		if err != nil {
+			s.logger.V(util.SynLogLevel).Error(err, "CheckErrMsgsByListenerPort succ")
+			continue
+		}
 		chSynthesize <- struct{}{}
 		wgSynthesize.Add(1)
 
@@ -85,7 +98,7 @@ func (s *aclApplier) PostApply(ctx context.Context) error {
 	return nil
 }
 
-func (s *aclApplier) synthesizeAclsOnListener(ctx context.Context, listener *alb.Listener, resAcls []*alb.Acl) error {
+func (s *aclApplier) synthesizeAclsOnListener(ctx context.Context, listener *alb.Listener, resAcl *alb.Acl) error {
 	if listener == nil {
 		return fmt.Errorf("empty listenerwhen synthesize acls error")
 	}
@@ -94,79 +107,87 @@ func (s *aclApplier) synthesizeAclsOnListener(ctx context.Context, listener *alb
 	if err != nil {
 		return err
 	}
-	var oldAclType string
-	if len(resAcls) > 0 {
-		oldAclType = resAcls[0].Spec.AclType
-	}
-
-	aclId, aclType, err := s.findListenerAclConfig(ctx, lsId)
+	aclIds, sdkAclType, err := s.findListenerAclConfig(ctx, lsId)
 	if err != nil {
 		return err
 	}
-	sdkAcls := make([]albsdk.Acl, 0)
-	// 监听上绑定了acl，需要获取sdkAcls列表
-	if aclId != "" {
-		sdkAcls, err = s.findSDKAclsOnLS(ctx, listener, aclId)
+	if resAcl == nil {
+		return nil
+	}
+	resAclType := resAcl.Spec.AclType
+	if resAcl.Spec.AclName == "" {
+		// take aclIds with other unmatchedSDKAcls
+		_, unmatchedResAclIds, unmatchedSdkAclIds := matchResAndSDKAclIds(resAcl.Spec.AclIds, aclIds)
+		if resAclType != sdkAclType {
+			unmatchedResAclIds = resAcl.Spec.AclIds
+			unmatchedSdkAclIds = aclIds
+		}
+
+		if len(unmatchedResAclIds) > 0 {
+			s.logger.V(util.SynLogLevel).Info("synthesize aclIds",
+				"unmatchedResAclIds", unmatchedResAclIds,
+				"traceID", traceID)
+			if err := s.albProvider.AssociateAclWithListener(ctx, traceID, resAcl, unmatchedResAclIds); err != nil {
+				return err
+			}
+		}
+		if len(unmatchedSdkAclIds) > 0 {
+			s.logger.V(util.SynLogLevel).Info("synthesize aclIds",
+				"unmatchedSdkAclIds", unmatchedSdkAclIds,
+				"traceID", traceID)
+			if err := s.albProvider.DisassociateAclWithListener(traceID, lsId, unmatchedSdkAclIds); err != nil {
+				return err
+			}
+		}
+
+	} else {
+		sdkAcls, err := s.findSDKAclsOnLS(ctx, listener, aclIds)
 		if err != nil {
 			return err
 		}
-	}
-
-	matchedResAndSDKAcls, unmatchedResAcls, unmatchedSDKAcls := matchResAndSDKAcls(resAcls, sdkAcls)
-	// 监听上的关联acl类型发生变化，不管内容是否变化，要移除现有配置重新关
-	if aclType != oldAclType {
-		unmatchedSDKAcls = sdkAcls
-		unmatchedResAcls = resAcls
-		matchedResAndSDKAcls = make([]alb.ResAndSDKAclPair, 0)
-	}
-
-	if len(matchedResAndSDKAcls) != 0 {
-		s.logger.V(util.SynLogLevel).Info("synthesize acls",
-			"matchedResAndSDKAcls", matchedResAndSDKAcls,
-			"traceID", traceID)
-	}
-	if len(unmatchedResAcls) != 0 {
-		s.logger.V(util.SynLogLevel).Info("synthesize acls",
-			"unmatchedResAcls", unmatchedResAcls,
-			"traceID", traceID)
-	}
-	if len(unmatchedSDKAcls) != 0 {
-		s.logger.V(util.SynLogLevel).Info("synthesize acls",
-			"unmatchedSDKAcls", unmatchedSDKAcls,
-			"traceID", traceID)
-	}
-	for _, sdkAcl := range unmatchedSDKAcls {
-		// if err := s.albProvider.DeleteAcl(ctx, lsId, sdkAcl.AclId); err != nil {
-		// 	return err
-		// }
-		// 临时逻辑, ACL不能删除，同步云端acl列表到aclconfig，这里写入stack，finish reconcile时可以读取到
-		sdkAclEntries, err := s.albProvider.ListAclEntriesByID(traceID, sdkAcl.AclId)
-		if err != nil {
+		matchedResAndSDKAcls, unmatchedResAcls, unmatchedSDKAcls := matchResAndSDKAcls([]*alb.Acl{resAcl}, sdkAcls)
+		// acl type change need re-related operation
+		if resAclType != sdkAclType {
+			unmatchedSDKAcls = sdkAcls
+			unmatchedResAcls = []*alb.Acl{resAcl}
+			matchedResAndSDKAcls = make([]alb.ResAndSDKAclPair, 0)
+		}
+		if len(matchedResAndSDKAcls) != 0 {
+			s.logger.V(util.SynLogLevel).Info("synthesize acls",
+				"matchedResAndSDKAcls", matchedResAndSDKAcls,
+				"traceID", traceID)
+		}
+		if len(unmatchedResAcls) != 0 {
+			s.logger.V(util.SynLogLevel).Info("synthesize acls",
+				"unmatchedResAcls", unmatchedResAcls,
+				"traceID", traceID)
+		}
+		if len(unmatchedSDKAcls) != 0 {
+			s.logger.V(util.SynLogLevel).Info("synthesize acls",
+				"unmatchedSDKAcls", unmatchedSDKAcls,
+				"traceID", traceID)
+		}
+		if err := s.createAndUpdateMatchedAcl(ctx, resAclType, lsId, listener, MatchResAndSDKAcl{
+			MatchedResAndSDKAcls: matchedResAndSDKAcls,
+			UnmatchedResAcls:     unmatchedResAcls,
+			UnmatchedSDKAcls:     unmatchedSDKAcls,
+		}); err != nil {
 			return err
 		}
-		entries := make([]alb.AclEntry, 0)
-		for _, entry := range sdkAclEntries {
-			entries = append(entries, alb.AclEntry{Entry: entry.Entry})
-		}
-		aclSpec := &alb.AclSpec{
-			ListenerID: listener.ListenerID(),
-			AclName:    sdkAcl.AclName,
-			AclType:    aclType,
-			AclEntries: entries,
-		}
-		aclResID := fmt.Sprintf("%v", listener.Spec.ListenerPort)
-		alb.NewAcl(s.stack, aclResID, *aclSpec)
-
 	}
-	for _, resAcl := range unmatchedResAcls {
-		aclStatus, err := s.albProvider.CreateAcl(ctx, resAcl)
+	return nil
+}
+
+func (a *aclApplier) createAndUpdateMatchedAcl(ctx context.Context, sdkAclType, lsId string, listener *alb.Listener, match MatchResAndSDKAcl) error {
+	for _, resAcl := range match.UnmatchedResAcls {
+		aclStatus, err := a.albProvider.CreateAcl(ctx, resAcl)
 		if err != nil {
 			return err
 		}
 		resAcl.SetStatus(aclStatus)
 	}
-	for _, resAndSDKAcl := range matchedResAndSDKAcls {
-		aclStatus, err := s.albProvider.UpdateAcl(ctx, lsId, resAndSDKAcl)
+	for _, resAndSDKAcl := range match.MatchedResAndSDKAcls {
+		aclStatus, err := a.albProvider.UpdateAcl(ctx, lsId, resAndSDKAcl)
 		if err != nil {
 			return err
 		}
@@ -175,24 +196,44 @@ func (s *aclApplier) synthesizeAclsOnListener(ctx context.Context, listener *alb
 	return nil
 }
 
-func (s *aclApplier) findListenerAclConfig(ctx context.Context, lsId string) (string, string, error) {
+func (s *aclApplier) findListenerAclConfig(ctx context.Context, lsId string) ([]string, string, error) {
 	lsAttrResponse, err := s.albProvider.GetALBListenerAttribute(ctx, lsId)
 	if err != nil {
-		return "", "", err
+		return nil, "", err
 	}
 	if len(lsAttrResponse.AclConfig.AclRelations) == 0 {
-		return "", "", nil
+		return nil, "", nil
 	}
 	aclConfig := lsAttrResponse.AclConfig
-	return aclConfig.AclRelations[0].AclId, aclConfig.AclType, nil
+	aclIds := []string{}
+	for _, acl := range aclConfig.AclRelations {
+		aclIds = append(aclIds, acl.AclId)
+	}
+	return aclIds, aclConfig.AclType, nil
 }
 
-func (s *aclApplier) findSDKAclsOnLS(ctx context.Context, listener *alb.Listener, aclId string) ([]albsdk.Acl, error) {
-	acls, err := s.albProvider.ListAcl(ctx, listener, aclId)
+func (s *aclApplier) findSDKAclsOnLS(ctx context.Context, listener *alb.Listener, aclIds []string) ([]albsdk.Acl, error) {
+	acls, err := s.albProvider.ListAcl(ctx, listener, aclIds)
 	if err != nil {
 		return nil, err
 	}
 	return acls, nil
+}
+
+func matchResAndSDKAclIds(resAclIds, sdkAclIds []string) ([]string, []string, []string) {
+
+	sdkAclIdsSet := make(sets.String, len(sdkAclIds))
+	for _, sdkAclId := range sdkAclIds {
+		sdkAclIdsSet[sdkAclId] = sets.Empty{}
+	}
+	resAclIdsSet := make(sets.String, len(resAclIds))
+	for _, resAclId := range resAclIds {
+		resAclIdsSet[resAclId] = sets.Empty{}
+	}
+	matchedResAndSdkAclIds := resAclIdsSet.Intersection(sdkAclIdsSet).List()
+	unmatchedResAclIds := resAclIdsSet.Difference(sdkAclIdsSet).List()
+	unmatchedSdkAclIds := sdkAclIdsSet.Difference(resAclIdsSet).List()
+	return matchedResAndSdkAclIds, unmatchedResAclIds, unmatchedSdkAclIds
 }
 
 func matchResAndSDKAcls(resAcls []*alb.Acl, sdkAcls []albsdk.Acl) ([]alb.ResAndSDKAclPair, []*alb.Acl, []albsdk.Acl) {
@@ -238,14 +279,14 @@ func mapSdkAclByName(sdkAcls []albsdk.Acl) map[string]albsdk.Acl {
 	return sdkAclByName
 }
 
-func mapResAclByListenerID(ctx context.Context, resAcls []*alb.Acl) (map[string][]*alb.Acl, error) {
-	resAclByLsID := make(map[string][]*alb.Acl, 0)
+func mapResAclByListenerID(ctx context.Context, resAcls []*alb.Acl) (map[string]*alb.Acl, error) {
+	resAclByLsID := make(map[string]*alb.Acl, 0)
 	for _, acl := range resAcls {
 		lsID, err := acl.Spec.ListenerID.Resolve(ctx)
 		if err != nil {
 			return nil, err
 		}
-		resAclByLsID[lsID] = append(resAclByLsID[lsID], acl)
+		resAclByLsID[lsID] = acl
 	}
 	return resAclByLsID, nil
 }

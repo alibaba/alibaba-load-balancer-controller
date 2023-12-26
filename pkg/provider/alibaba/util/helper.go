@@ -2,10 +2,9 @@ package util
 
 import (
 	"fmt"
-	"strings"
-
 	"github.com/alibabacloud-go/tea/tea"
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/errors"
+	"strings"
 )
 
 // A PaginationResponse represents a response with pagination information
@@ -26,18 +25,6 @@ func (r *PaginationResult) NextPage() *Pagination {
 		return nil
 	}
 	return &Pagination{PageNumber: r.PageNumber + 1, PageSize: r.PageSize}
-}
-
-func FormatErrorMessage(err error) error {
-	if err == nil {
-		return err
-	}
-
-	attrs := strings.Split(err.Error(), "\n")
-	if len(attrs) != 5 {
-		return err
-	}
-	return fmt.Errorf(strings.Join(attrs[3:], ", "))
 }
 
 // providerID

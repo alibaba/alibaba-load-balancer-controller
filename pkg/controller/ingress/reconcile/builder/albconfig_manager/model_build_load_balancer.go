@@ -8,12 +8,9 @@ import (
 	"regexp"
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/util"
-	"k8s.io/alibaba-load-balancer-controller/version"
 
 	v1 "k8s.io/alibaba-load-balancer-controller/pkg/apis/alibabacloud/v1"
 	"k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
-
-	"github.com/pkg/errors"
 )
 
 const (
@@ -27,6 +24,10 @@ func (t *defaultModelBuildTask) buildAlbLoadBalancer(ctx context.Context, albcon
 	}
 	lb := alb.NewAlbLoadBalancer(t.stack, ApplicationLoadBalancerResource, lbSpec)
 	t.loadBalancer = lb
+	if t.albconfig.Status.LoadBalancer.DNSName != "" && t.albconfig.Status.LoadBalancer.Id != "" {
+		lbStatus := t.buildAlbLoadBalancerStatus()
+		lb.SetStatus(lbStatus)
+	}
 	return lb, nil
 }
 
@@ -37,6 +38,11 @@ func (t *defaultModelBuildTask) buildAlbLoadBalancerSpec(ctx context.Context, al
 	forceOverride := false
 	if lbModel.ForceOverride == nil {
 		lbModel.ForceOverride = &forceOverride
+	}
+	lbModel.ListenerForceOverride = albConfig.Spec.LoadBalancer.ListenerForceOverride
+	listenerForceOverride := false
+	if lbModel.ListenerForceOverride == nil {
+		lbModel.ListenerForceOverride = &listenerForceOverride
 	}
 	if len(albConfig.Spec.LoadBalancer.Name) != 0 {
 		lbModel.LoadBalancerName = albConfig.Spec.LoadBalancer.Name
@@ -57,29 +63,35 @@ func (t *defaultModelBuildTask) buildAlbLoadBalancerSpec(ctx context.Context, al
 	if albConfig.Spec.LoadBalancer.Id == "" {
 		if len(albConfig.Spec.LoadBalancer.ZoneMappings) != 0 {
 			vSwitchIds := make([]string, 0)
+			vSwitchAllocationID := make(map[string]string, 0)
 			for _, zm := range albConfig.Spec.LoadBalancer.ZoneMappings {
 				vSwitchIds = append(vSwitchIds, zm.VSwitchId)
+				if zm.AllocationId != "" {
+					vSwitchAllocationID[zm.VSwitchId] = zm.AllocationId
+				}
 			}
 			vSwitches, err := t.vSwitchResolver.ResolveViaIDSlice(ctx, vSwitchIds)
 			if err != nil {
 				return alb.ALBLoadBalancerSpec{}, err
 			}
-			if len(vSwitches) < 2 {
-				return alb.ALBLoadBalancerSpec{}, errors.New("unable to discover at least two vswitchs for alb")
-			}
 			for _, vSwitch := range vSwitches {
-				zoneMappings = append(zoneMappings, alb.ZoneMapping{
-					VSwitchId: vSwitch.VSwitchId,
-					ZoneId:    vSwitch.ZoneId,
-				})
+				if _, ok := vSwitchAllocationID[vSwitch.VSwitchId]; ok {
+					zoneMappings = append(zoneMappings, alb.ZoneMapping{
+						VSwitchId:    vSwitch.VSwitchId,
+						ZoneId:       vSwitch.ZoneId,
+						AllocationId: vSwitchAllocationID[vSwitch.VSwitchId],
+					})
+				} else {
+					zoneMappings = append(zoneMappings, alb.ZoneMapping{
+						VSwitchId: vSwitch.VSwitchId,
+						ZoneId:    vSwitch.ZoneId,
+					})
+				}
 			}
 		} else {
 			vSwitches, err := t.vSwitchResolver.ResolveViaDiscovery(ctx)
 			if err != nil {
 				return alb.ALBLoadBalancerSpec{}, err
-			}
-			if len(vSwitches) < 2 {
-				return alb.ALBLoadBalancerSpec{}, errors.New("unable to discover at least two albZones for alb")
 			}
 			for _, vSwitch := range vSwitches {
 				zoneMappings = append(zoneMappings, alb.ZoneMapping{
@@ -99,6 +111,14 @@ func (t *defaultModelBuildTask) buildAlbLoadBalancerSpec(ctx context.Context, al
 	if lbModel.AddressType == "" {
 		lbModel.AddressType = util.LoadBalancerAddressTypeInternet
 	}
+	lbModel.Ipv6AddressType = albConfig.Spec.LoadBalancer.Ipv6AddressType
+	if lbModel.Ipv6AddressType == "" {
+		lbModel.Ipv6AddressType = util.LoadBalancerIpv6AddressTypeIntranet
+	}
+	lbModel.AddressIpVersion = albConfig.Spec.LoadBalancer.AddressIpVersion
+	if lbModel.AddressIpVersion == "" {
+		lbModel.AddressIpVersion = util.LoadBalancerAddressIpVersionIPv4
+	}
 	lbModel.DeletionProtectionConfig = alb.DeletionProtectionConfig{
 		Enabled:     true,
 		EnabledTime: "",
@@ -115,21 +135,29 @@ func (t *defaultModelBuildTask) buildAlbLoadBalancerSpec(ctx context.Context, al
 		InternetBandwidth:  albConfig.Spec.LoadBalancer.BillingConfig.InternetBandwidth,
 		InternetChargeType: albConfig.Spec.LoadBalancer.BillingConfig.InternetChargeType,
 		PayType:            payType,
+		BandWidthPackageId: albConfig.Spec.LoadBalancer.BillingConfig.BandWidthPackageId,
 	}
 	lbModel.LoadBalancerEdition = albConfig.Spec.LoadBalancer.Edition
 	if lbModel.LoadBalancerEdition == "" {
 		lbModel.LoadBalancerEdition = util.LoadBalancerEditionStandard
 	}
-	tagValue := version.Version
-	if tagValue == "" {
-		tagValue = "unkown"
+
+	// build customer tags
+	if len(albConfig.Spec.LoadBalancer.Tags) != 0 {
+		tags := make([]alb.ALBTag, 0)
+		for _, tag := range albConfig.Spec.LoadBalancer.Tags {
+			tags = append(tags, alb.ALBTag{
+				Key:   tag.Key,
+				Value: tag.Value,
+			})
+		}
+		lbModel.Tags = tags
 	}
-	lbModel.Tags = []alb.ALBTag{
-		{
-			Key:   util.AlibabaLoadBalancerControllerTagKey,
-			Value: tagValue,
-		},
+
+	if albConfig.Spec.LoadBalancer.ResourceGroupId != "" {
+		lbModel.ResourceGroupId = albConfig.Spec.LoadBalancer.ResourceGroupId
 	}
+
 	return lbModel, nil
 }
 
@@ -144,4 +172,11 @@ func (t *defaultModelBuildTask) buildAlbLoadBalancerName() (string, error) {
 	sanitizedNamespace := invalidLoadBalancerNamePattern.ReplaceAllString(t.ingGroup.ID.Namespace, "")
 	sanitizedName := invalidLoadBalancerNamePattern.ReplaceAllString(t.ingGroup.ID.Name, "")
 	return fmt.Sprintf("k8s-%s-%s-%.10s", sanitizedNamespace, sanitizedName, uuid), nil
+}
+
+func (t *defaultModelBuildTask) buildAlbLoadBalancerStatus() alb.LoadBalancerStatus {
+	return alb.LoadBalancerStatus{
+		LoadBalancerID: t.albconfig.Status.LoadBalancer.Id,
+		DNSName:        t.albconfig.Status.LoadBalancer.DNSName,
+	}
 }

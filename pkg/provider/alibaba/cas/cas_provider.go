@@ -2,6 +2,8 @@ package cas
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"sync"
 	"time"
 
@@ -11,9 +13,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/cache"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
-	cassdk "github.com/aliyun/alibaba-cloud-sdk-go/services/cas"
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/responses"
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	"k8s.io/alibaba-load-balancer-controller/pkg/model"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -56,13 +59,21 @@ const (
 	DefaultSSLCertificateTimeout          = 60 * time.Second
 )
 
+func (c CASProvider) casDoAction(request requests.AcsRequest, response responses.AcsResponse) (err error) {
+	return c.auth.CAS.Client.DoAction(request, response)
+}
+
 func (c CASProvider) DeleteSSLCertificate(ctx context.Context, certId string) error {
 	traceID := ctx.Value(util.TraceID)
-	req := cassdk.CreateDeleteSSLCertificateRequest()
-	req.SetVersion(CASVersion)
-	req.Domain = CASDomain
-	req.CertIdentifier = certId
-	var resp *cassdk.DeleteSSLCertificateResponse
+	rpcRequest := &requests.RpcRequest{}
+	rpcRequest.InitWithApiInfo("cas", "2020-06-19", "DeleteSSLCertificate", "cas", "openAPI")
+	rpcRequest.Method = requests.POST
+	rpcRequest.Domain = CASDomain
+	rpcRequest.QueryParams = map[string]string{
+		"CertIdentifier": certId,
+	}
+
+	response := responses.NewCommonResponse()
 	var err error
 	if err := util.RetryImmediateOnError(DefaultSSLCertificatePollInterval, DefaultSSLCertificateTimeout, func(err error) bool {
 		return false
@@ -72,17 +83,20 @@ func (c CASProvider) DeleteSSLCertificate(ctx context.Context, certId string) er
 			"traceID", traceID,
 			"startTime", startTime,
 			"action", DeleteSSLCertificate)
-		resp, err = c.auth.CAS.DeleteSSLCertificate(req)
+		err = c.casDoAction(rpcRequest, response)
 		if err != nil {
+			return err
+		}
+		if !response.IsSuccess() {
 			c.logger.Error(err, "DeleteSSLCertificate error")
 			return err
 		}
 		c.logger.Info("deleted ssl certificate",
 			"traceID", traceID,
-			"CertIdentifier", req.CertIdentifier,
+			"CertIdentifier", certId,
 			"elapsedTime", time.Since(startTime).Milliseconds(),
-			"requestID", resp.RequestId,
-			"action", CreateSSLCertificateWithName)
+			"response", response,
+			"action", DeleteSSLCertificate)
 		return nil
 	}); err != nil {
 		return errors.Wrap(err, "failed to deleteSSLCertificate")
@@ -96,13 +110,16 @@ func (c CASProvider) DeleteSSLCertificate(ctx context.Context, certId string) er
 func (c CASProvider) CreateSSLCertificateWithName(ctx context.Context, certName, certificate, privateKey string) (string, error) {
 	traceID := ctx.Value(util.TraceID)
 
-	req := cassdk.CreateCreateSSLCertificateWithNameRequest()
-	req.SetVersion(CASVersion)
-	req.Domain = CASDomain
-	req.CertName = certName
-	req.PrivateKey = privateKey
-	req.Certificate = certificate
-	var resp *cassdk.CreateSSLCertificateWithNameResponse
+	rpcRequest := &requests.RpcRequest{}
+	rpcRequest.InitWithApiInfo("cas", "2020-06-19", "CreateSSLCertificateWithName", "cas", "openAPI")
+	rpcRequest.Method = requests.POST
+	rpcRequest.Domain = CASDomain
+	rpcRequest.QueryParams = map[string]string{
+		"CertName":    certName,
+		"PrivateKey":  privateKey,
+		"Certificate": certificate,
+	}
+	response := responses.NewCommonResponse()
 	var err error
 	if err := util.RetryImmediateOnError(DefaultSSLCertificatePollInterval, DefaultSSLCertificateTimeout, func(err error) bool {
 		return false
@@ -112,17 +129,19 @@ func (c CASProvider) CreateSSLCertificateWithName(ctx context.Context, certName,
 			"traceID", traceID,
 			"startTime", startTime,
 			"action", CreateSSLCertificateWithName)
-		resp, err = c.auth.CAS.CreateSSLCertificateWithName(req)
+		err = c.casDoAction(rpcRequest, response)
 		if err != nil {
+			return err
+		}
+		if !response.IsSuccess() {
 			c.logger.Error(err, "CreateSSLCertificateWithName error")
 			return err
 		}
 		c.logger.Info("created ssl certificate",
 			"traceID", traceID,
 			"certName", certName,
-			"CertIdentifier", resp.CertIdentifier,
 			"elapsedTime", time.Since(startTime).Milliseconds(),
-			"requestID", resp.RequestId,
+			"response", response,
 			"action", CreateSSLCertificateWithName)
 		return nil
 	}); err != nil {
@@ -131,48 +150,59 @@ func (c CASProvider) CreateSSLCertificateWithName(ctx context.Context, certName,
 	c.loadCertMutex.Lock()
 	defer c.loadCertMutex.Unlock()
 	c.certsCache.Delete(certsCacheKey)
-	return resp.CertIdentifier, nil
+	resp := map[string]interface{}{}
+	json.Unmarshal(response.GetHttpContentBytes(), &resp)
+	return resp["CertIdentifier"].(string), nil
 }
 
-func (c CASProvider) DescribeSSLCertificateList(ctx context.Context) ([]cassdk.CertificateInfo, error) {
+func (c CASProvider) DescribeSSLCertificateList(ctx context.Context) ([]model.CertificateInfo, error) {
 	traceID := ctx.Value(util.TraceID)
 	c.loadCertMutex.Lock()
 	defer c.loadCertMutex.Unlock()
 
 	if rawCacheItem, ok := c.certsCache.Get(certsCacheKey); ok {
-		return rawCacheItem.([]cassdk.CertificateInfo), nil
+		return rawCacheItem.([]model.CertificateInfo), nil
 	}
 
-	req := cassdk.CreateDescribeSSLCertificateListRequest()
-	req.SetVersion(CASVersion)
-	req.Domain = CASDomain
-	req.ShowSize = requests.NewInteger(CASShowSize)
+	rpcRequest := &requests.RpcRequest{}
+	rpcRequest.InitWithApiInfo("cas", "2020-06-19", "DescribeSSLCertificateList", "cas", "openAPI")
+	rpcRequest.Method = requests.POST
+	rpcRequest.Domain = CASDomain
 
-	certificateInfos := make([]cassdk.CertificateInfo, 0)
+	response := responses.NewCommonResponse()
+
+	certificateInfos := make([]model.CertificateInfo, 0)
 	pageNumber := 1
 	for {
-		req.CurrentPage = requests.NewInteger(pageNumber)
+		rpcRequest.QueryParams = map[string]string{
+			"ShowSize":    strconv.Itoa(CASShowSize),
+			"CurrentPage": strconv.Itoa(pageNumber),
+		}
 
 		startTime := time.Now()
 		c.logger.Info("listing ssl certificate",
 			"traceID", traceID,
 			"startTime", startTime,
 			"action", DescribeSSLCertificateList)
-		resp, err := c.auth.CAS.DescribeSSLCertificateList(req)
+		err := c.casDoAction(rpcRequest, response)
 		if err != nil {
 			c.logger.Error(err, "DescribeUserCertificateList error")
 			return nil, err
 		}
 		c.logger.Info("listed ssl certificate",
 			"traceID", traceID,
-			"certMetaList", resp.CertMetaList,
+			"certMetaList", response.GetHttpContentString(),
 			"elapsedTime", time.Since(startTime).Milliseconds(),
-			"requestID", resp.RequestId,
+			"response", response,
 			"action", DescribeSSLCertificateList)
-
-		certificateInfos = append(certificateInfos, resp.CertMetaList...)
-
-		if pageNumber < resp.PageCount {
+		resp := map[string]interface{}{}
+		json.Unmarshal(response.GetHttpContentBytes(), &resp)
+		certBytes, _ := json.Marshal(resp["CertMetaList"])
+		certs := []model.CertificateInfo{}
+		json.Unmarshal(certBytes, &certs)
+		certificateInfos = append(certificateInfos, certs...)
+		pageCount := int(resp["PageCount"].(float64))
+		if pageNumber < pageCount {
 			pageNumber++
 		} else {
 			break
@@ -180,8 +210,4 @@ func (c CASProvider) DescribeSSLCertificateList(ctx context.Context) ([]cassdk.C
 	}
 	c.certsCache.Set(certsCacheKey, certificateInfos, c.certsCacheTTL)
 	return certificateInfos, nil
-}
-
-func (c CASProvider) DescribeSSLCertificatePublicKeyDetail(ctx context.Context, request *cassdk.DescribeSSLCertificatePublicKeyDetailRequest) (*cassdk.DescribeSSLCertificatePublicKeyDetailResponse, error) {
-	return c.auth.CAS.DescribeSSLCertificatePublicKeyDetail(request)
 }

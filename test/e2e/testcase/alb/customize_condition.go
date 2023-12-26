@@ -3,7 +3,7 @@ package alb
 import (
 	"fmt"
 
-	"github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/v2"
 	"k8s.io/alibaba-load-balancer-controller/pkg/controller/ingress/reconcile/annotations"
 	"k8s.io/alibaba-load-balancer-controller/test/e2e/client"
 	"k8s.io/alibaba-load-balancer-controller/test/e2e/framework"
@@ -51,7 +51,6 @@ func RunCustomizeConditionTestCases(f *framework.Framework) {
 	rule := common.Rule{}
 	ingress := common.Ingress{}
 	service := common.Service{}
-	ginkgo.By("create service")
 	ginkgo.BeforeEach(func() {
 		service.CreateDefaultService(f)
 	})

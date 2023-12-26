@@ -2,13 +2,14 @@ package alb
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/controller/ingress/reconcile/annotations"
+	"k8s.io/alibaba-load-balancer-controller/test/e2e/testcase/alb/common"
+	"k8s.io/alibaba-load-balancer-controller/test/e2e/testcase/alb/component"
 
-	"github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"k8s.io/alibaba-load-balancer-controller/test/e2e/framework"
 	v1 "k8s.io/api/core/v1"
@@ -22,7 +23,6 @@ import (
 
 func RunIngressTestCases(f *framework.Framework) {
 
-	ginkgo.By("create service")
 	ginkgo.BeforeEach(func() {
 		svc := f.Client.KubeClient.DefaultService()
 		svc.Spec.Type = v1.ServiceTypeNodePort
@@ -57,7 +57,7 @@ func RunIngressTestCases(f *framework.Framework) {
 	ginkgo.Describe("alb-ingress-controller: ingress", func() {
 
 		ginkgo.Context("ingress create", func() {
-			ginkgo.It("[alb][p0] ingress with NodePort Service", func() {
+			ginkgo.It("[alb][p0][smoke] ingress with NodePort Service", func() {
 				ing := defaultIngress(f)
 				waitCreateIngress(f, ing)
 			})
@@ -69,7 +69,7 @@ func RunIngressTestCases(f *framework.Framework) {
 				listeners := getAlbconfigListeners(crd)
 				gomega.Expect(len(listeners) > 0).To(gomega.BeTrue())
 			})
-			ginkgo.It("[alb][p0] ingress with rewrite-target annotations", func() {
+			ginkgo.It("[alb][p0][smoke] ingress with rewrite-target annotations", func() {
 				ing := defaultIngress(f)
 				anno := map[string]string{}
 				anno["alb.ingress.kubernetes.io/rewrite-target"] = "/path/${2}"
@@ -106,7 +106,7 @@ func RunIngressTestCases(f *framework.Framework) {
 				}
 				waitCreateIngress(f, ing)
 			})
-			ginkgo.It("[alb][p0] ingress with backend protocol", func() {
+			ginkgo.It("[alb][p1] ingress with backend protocol", func() {
 				ing := defaultTLSIngress(f)
 				ing.Annotations = map[string]string{
 					"alb.ingress.kubernetes.io/backend-protocol": "GRPC",
@@ -114,9 +114,17 @@ func RunIngressTestCases(f *framework.Framework) {
 				waitCreateIngress(f, ing)
 			})
 			ginkgo.It("[alb][p0] ingress with backend scheduler", func() {
-				ing := defaultTLSIngress(f)
+				ing := defaultIngress(f)
 				ing.Annotations = map[string]string{
 					"alb.ingress.kubernetes.io/backend-scheduler": "sch",
+				}
+				waitCreateIngress(f, ing)
+			})
+			ginkgo.It("[alb][p0] ingress with backend scheduler uch", func() {
+				ing := defaultIngress(f)
+				ing.Annotations = map[string]string{
+					"alb.ingress.kubernetes.io/backend-scheduler":           "uch",
+					"alb.ingress.kubernetes.io/backend-scheduler-uch-value": "test",
 				}
 				waitCreateIngress(f, ing)
 			})
@@ -144,6 +152,21 @@ func RunIngressTestCases(f *framework.Framework) {
 				anno := map[string]string{}
 				anno["alb.ingress.kubernetes.io/rewrite-target"] = "/path/${2}"
 				anno["alb.ingress.kubernetes.io/traffic-limit-qps"] = "50"
+				ing.Annotations = anno
+				ing.Spec.Rules[0].HTTP.Paths[0].Path = "/something(/|$)(.*)"
+				waitCreateIngress(f, ing)
+			})
+			ginkgo.It("[alb][p0] ingress with cors only", func() {
+				ing := defaultIngress(f)
+				anno := map[string]string{}
+				ing.Annotations = anno
+				waitCreateIngress(f, ing)
+			})
+			ginkgo.It("[alb][p0] ingress with rewrite-target and cors", func() {
+				ing := defaultIngress(f)
+				anno := map[string]string{}
+				anno["alb.ingress.kubernetes.io/rewrite-target"] = "/path/${2}"
+				anno["alb.ingress.kubernetes.io/cors-enable"] = "true"
 				ing.Annotations = anno
 				ing.Spec.Rules[0].HTTP.Paths[0].Path = "/something(/|$)(.*)"
 				waitCreateIngress(f, ing)
@@ -195,12 +218,70 @@ func RunIngressTestCases(f *framework.Framework) {
 				})
 				gomega.Expect(policySet).To(gomega.BeTrue())
 			})
+			ginkgo.It("[alb][p0] albconfig listener aclconfig", func() {
+				ing := defaultIngress(f)
+				waitCreateIngress(f, ing)
+				crd := getAlbconfigCrd(f)
+				listeners := getAlbconfigListeners(crd)
+				lbId := getAlbconfigLbId(crd)
+
+				for _, listener := range listeners {
+					ls := listener.(map[string]interface{})
+					aclConfigMap := map[string]interface{}{
+						"aclType": "White",
+						"aclName": "e2e-test-acl",
+					}
+					unstructured.SetNestedMap(ls, aclConfigMap, "aclConfig")
+					unstructured.SetNestedStringSlice(ls, []string{"127.0.0.1/32"}, "aclConfig", "aclEntries")
+				}
+				err := unstructured.SetNestedSlice(crd.Object, listeners, "spec", "listeners")
+				gomega.Expect(err).To(gomega.BeNil())
+				updateAlbConfig(f, crd)
+
+				albSdkProvider := f.Client.CloudClient.ALBProvider
+				cloudAclType := ""
+				// 调谐成功后云上资源对应的监听有SecurityPolicyId设置即可
+				cloudAcl := []component.AclTest{}
+				wait.Poll(5*time.Second, 2*time.Minute, func() (done bool, err error) {
+					cloudListeners, err := albSdkProvider.ListALBListeners(context.TODO(), lbId)
+					if err != nil {
+						klog.Infof("list alb listerners: %s:%s", lbId, err.Error())
+						return false, nil
+					}
+					for _, ls := range cloudListeners {
+						cloudLs, err := albSdkProvider.GetALBListenerAttribute(context.TODO(), ls.ListenerId)
+						if err != nil {
+							klog.Infof("get listener attribute failed: %s, reason: %s", lbId, err.Error())
+							return false, nil
+						}
+						if cloudLs.AclConfig.AclType != "" {
+							cloudAclType = cloudLs.AclConfig.AclType
+							for _, acl := range cloudLs.AclConfig.AclRelations {
+								cloudAcl = append(cloudAcl, component.AclTest{
+									ListenerId: ls.ListenerId,
+									AclId:      acl.AclId,
+								})
+							}
+							return true, nil
+						}
+					}
+					klog.Infof("wait for alb listeners : %s", lbId)
+					return false, nil
+				})
+				gomega.Expect(cloudAclType).To(gomega.Equal("White"))
+				for _, acl := range cloudAcl {
+					acl.DeleteAcl(albSdkProvider)
+				}
+			})
 		})
 	})
 }
 
 func defaultIngress(f *framework.Framework) *networkingv1.Ingress {
 	return f.Client.KubeClient.DefaultIngress()
+}
+func defaultIngressWithSvcName(f *framework.Framework, svcName string) *networkingv1.Ingress {
+	return f.Client.KubeClient.DefaultIngressWithSvcName(svcName)
 }
 
 func defaultTLSIngress(f *framework.Framework) *networkingv1.Ingress {
@@ -267,7 +348,7 @@ func waitCreateIngress(f *framework.Framework, ing *networkingv1.Ingress) {
 			for _, rule := range ing.Spec.Rules {
 				for _, path := range rule.HTTP.Paths {
 					_, conditionExist := ing.Annotations[fmt.Sprintf(annotations.INGRESS_ALB_CONDITIONS_ANNOTATIONS, path.Backend.Service.Name)]
-					_, canaryExist := ing.Annotations[fmt.Sprintf(annotations.AlbCanary, path.Backend.Service.Name)]
+					_, canaryExist := ing.Annotations[annotations.AlbCanary]
 					if conditionExist && canaryExist {
 						klog.Errorf(" can't exist Canary and customize condition at the same time")
 						return true, nil
@@ -294,13 +375,13 @@ func waitCreateIngress(f *framework.Framework, ing *networkingv1.Ingress) {
 		dnsName = lb.Ingress[0].Hostname
 	}
 	klog.Info("Expect ingress.Status.loadBalance.Ingress.Hostname != nil")
-	gomega.Expect(dnsName).NotTo(gomega.BeEmpty(), printEventsWhenError(f))
+	gomega.Expect(dnsName).NotTo(gomega.BeEmpty(), common.PrintEventsWhenError(f))
 }
 
 func getAlbconfigCrd(f *framework.Framework) *unstructured.Unstructured {
 	albResource := schema.GroupVersionResource{Group: "alibabacloud.com", Version: "v1", Resource: "albconfigs"}
 	crd, err := f.Client.DynamicClient.Resource(albResource).Get(context.TODO(), "default", metav1.GetOptions{})
-	gomega.Expect(err).To(gomega.BeNil(), printEventsWhenError(f))
+	gomega.Expect(err).To(gomega.BeNil(), common.PrintEventsWhenError(f))
 	return crd
 }
 
@@ -321,41 +402,6 @@ func getAlbconfigLbId(albconfig *unstructured.Unstructured) string {
 func updateAlbConfig(f *framework.Framework, albconfig *unstructured.Unstructured) {
 	albResource := schema.GroupVersionResource{Group: "alibabacloud.com", Version: "v1", Resource: "albconfigs"}
 	crd, err := f.Client.DynamicClient.Resource(albResource).Update(context.TODO(), albconfig, metav1.UpdateOptions{})
-	gomega.Expect(err).To(gomega.BeNil(), printEventsWhenError(f))
+	gomega.Expect(err).To(gomega.BeNil(), common.PrintEventsWhenError(f))
 	klog.Infof("update albconfig with: %s", crd)
-}
-
-func printEventsWhenError(f *framework.Framework) string {
-	klog.Info("Looks like something went wrong~")
-	klog.Info("`kubectl -n e2e-test get events`")
-	results, err := f.Client.KubeClient.CoreV1().Events("e2e-test").List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		klog.Info("list e2e-test events failed", err)
-	}
-	followEvts := make([]aEvent, 0)
-	for _, evt := range results.Items {
-		followEvts = append(followEvts, aEvent{
-			FirstTimeStamp: evt.FirstTimestamp.Time,
-			LastTimeStamp:  evt.LastTimestamp.Time,
-			Reason:         evt.Reason,
-			Message:        evt.Message,
-			Type:           evt.Type,
-			InvokeObject:   evt.InvolvedObject,
-		})
-
-	}
-
-	eventByte, _ := json.MarshalIndent(followEvts, "", "  ")
-	eventString := string(eventByte)
-	klog.Infof("events=", eventString)
-	return eventString
-}
-
-type aEvent struct {
-	FirstTimeStamp time.Time
-	LastTimeStamp  time.Time
-	Reason         string
-	Message        string
-	Type           string
-	InvokeObject   v1.ObjectReference
 }

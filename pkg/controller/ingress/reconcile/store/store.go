@@ -21,12 +21,14 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
-	"k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
+	"k8s.io/alibaba-load-balancer-controller/pkg/model/alb/configcache"
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/controller/helper"
+	"k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/controller/ingress/reconcile/annotations"
 	"k8s.io/alibaba-load-balancer-controller/pkg/util"
@@ -42,7 +44,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 	clientcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
@@ -63,6 +64,7 @@ type Storer interface {
 	GetServiceEndpoints(key string) (*corev1.Endpoints, error)
 
 	GetPod(key string) (*corev1.Pod, error)
+	GetIngress(key string) (*networking.Ingress, error)
 
 	// ListIngresses returns a list of all Ingresses in the store.
 	ListIngresses() []*Ingress
@@ -71,6 +73,8 @@ type Storer interface {
 	DeleteIngress(ing *Ingress) error
 	// Run initiates the synchronization of the controllers
 	Run(stopCh chan struct{})
+
+	WaitCache(stopCh chan struct{}) (bool, error)
 }
 
 // Informer defines the required SharedIndexInformers that interact with the API server.
@@ -198,9 +202,6 @@ func New(
 	eventBroadcaster.StartRecordingToSink(&clientcorev1.EventSinkImpl{
 		Interface: client.CoreV1().Events(namespace),
 	})
-	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{
-		Component: "alb-ingress-controller",
-	})
 
 	store.listers.IngressWithAnnotation.Store = cache.NewStore(cache.DeletionHandlingMetaNamespaceKeyFunc)
 	// create informers factory, enable and assign required informers
@@ -250,20 +251,18 @@ func New(
 			}
 		}
 
-		if !store.IsValid(ing) {
-			return
-		}
-
 		if isCatchAllIngress(ing.Spec) && disableCatchAll {
 			klog.InfoS("Ignoring delete for catch-all because of --disable-catch-all", "ingress", klog.KObj(ing))
 			return
 		}
 		// ignore the normal delete
-		if ing.DeletionTimestamp == nil {
-			store.DeleteIngress(&Ingress{Ingress: *ing})
-		}
+		store.DeleteIngress(&Ingress{Ingress: *ing})
 		key := MetaNamespaceKey(ing)
 		store.secretIngressMap.Delete(key)
+
+		if !store.IsValid(ing) {
+			return
+		}
 
 		updateCh.In() <- helper.Event{
 			Type: helper.IngressDeleteEvent,
@@ -285,8 +284,6 @@ func New(
 				return
 			}
 
-			recorder.Eventf(ing, corev1.EventTypeNormal, "Sync", "Scheduled for sync")
-
 			store.syncIngress(ing)
 
 			updateCh.In() <- helper.Event{
@@ -301,6 +298,9 @@ func New(
 
 			validOld := store.IsValid(oldIng)
 			validCur := store.IsValid(curIng)
+			if reflect.DeepEqual(oldIng, curIng) {
+				return
+			}
 			if !validOld && validCur {
 				if isCatchAllIngress(curIng.Spec) && disableCatchAll {
 					klog.InfoS("ignoring update for catch-all ingress because of --disable-catch-all", "ingress", klog.KObj(curIng))
@@ -308,7 +308,6 @@ func New(
 				}
 
 				klog.InfoS("creating ingress", "ingress", klog.KObj(curIng), "class", IngressKey)
-				recorder.Eventf(curIng, corev1.EventTypeNormal, "Sync", "Scheduled for sync")
 			} else if validOld && !validCur {
 				klog.InfoS("removing ingress", "ingress", klog.KObj(curIng), "class", IngressKey)
 				ingDeleteHandler(old)
@@ -319,15 +318,18 @@ func New(
 					ingDeleteHandler(old)
 					return
 				}
-
-				recorder.Eventf(curIng, corev1.EventTypeNormal, "Sync", "Scheduled for sync")
 			} else {
 				klog.V(3).InfoS("No changes on ingress. Skipping update", "ingress", klog.KObj(curIng))
 				return
 			}
 
 			store.syncIngress(curIng)
-
+			if store.IsIngressClassUpdate(oldIng, curIng) && validOld {
+				updateCh.In() <- helper.Event{
+					Type: helper.AlbConfigEvent,
+					Obj:  oldIng,
+				}
+			}
 			updateCh.In() <- helper.Event{
 				Type: helper.UpdateEvent,
 				Obj:  cur,
@@ -419,14 +421,17 @@ func New(
 				return
 			}
 			ic := obj.(*networking.IngressClass)
-			store.enqueueImpactedIngressClassIngresses(updateCh, helper.CreateEvent, ic)
+			store.enqueueImpactedIngressClassIngresses(updateCh, helper.IngressEvent, ic)
 		},
 		DeleteFunc: func(obj interface{}) {
 			store.listers.IngressClass.Delete(obj)
 		},
 		UpdateFunc: func(old, cur interface{}) {
-			ic := cur.(*networking.IngressClass)
-			store.enqueueImpactedIngressClassIngresses(updateCh, helper.UpdateEvent, ic)
+			icOld := cur.(*networking.IngressClass)
+			icNew := cur.(*networking.IngressClass)
+			if !reflect.DeepEqual(icOld, icNew) {
+				store.enqueueImpactedIngressClassIngresses(updateCh, helper.IngressEvent, icNew)
+			}
 		},
 	}
 	nodeEventHandler := cache.ResourceEventHandlerFuncs{
@@ -434,20 +439,33 @@ func New(
 			serviceList := store.listers.Service.List()
 			for _, v := range serviceList {
 				svc := v.(*corev1.Service)
-				klog.Info("node change: enqueue service", util.Key(svc))
-				store.enqueueImpactedSvcIngresses(updateServerCh, helper.NodeEvent, svc)
+				policy, err := helper.GetServiceTrafficPolicy(svc)
+				if err != nil {
+					klog.Error(err, "ignore node add: service", util.Key(svc))
+					continue
+				}
+				if policy == helper.ClusterTrafficPolicy {
+					klog.Info("node add: enqueue service", util.Key(svc))
+					store.enqueueImpactedSvcIngresses(updateServerCh, helper.NodeEvent, svc)
+				}
 			}
 		},
 		UpdateFunc: func(old, cur interface{}) {
 			nodeOld := old.(*corev1.Node)
 			nodeNew := cur.(*corev1.Node)
-
-			if !reflect.DeepEqual(nodeOld.Labels, nodeNew.Labels) {
+			if needSyncNodeToALB(nodeOld, nodeNew) {
 				serviceList := store.listers.Service.List()
 				for _, v := range serviceList {
 					svc := v.(*corev1.Service)
-					klog.Info("node change: enqueue service", util.Key(svc))
-					store.enqueueImpactedSvcIngresses(updateServerCh, helper.NodeEvent, svc)
+					policy, err := helper.GetServiceTrafficPolicy(svc)
+					if err != nil {
+						klog.Error(err, "ignore node update change: service", util.Key(svc))
+						continue
+					}
+					if policy == helper.ClusterTrafficPolicy {
+						klog.Info("node update: enqueue service", util.Key(svc))
+						store.enqueueImpactedSvcIngresses(updateServerCh, helper.NodeEvent, svc)
+					}
 				}
 			}
 		},
@@ -456,8 +474,15 @@ func New(
 			serviceList := store.listers.Service.List()
 			for _, v := range serviceList {
 				svc := v.(*corev1.Service)
-				klog.Info("node change: enqueue service", util.Key(svc))
-				store.enqueueImpactedSvcIngresses(updateServerCh, helper.NodeEvent, svc)
+				policy, err := helper.GetServiceTrafficPolicy(svc)
+				if err != nil {
+					klog.Error(err, "ignore node delete: service", util.Key(svc))
+					continue
+				}
+				if policy == helper.ClusterTrafficPolicy {
+					klog.Info("node delete: enqueue service", util.Key(svc))
+					store.enqueueImpactedSvcIngresses(updateServerCh, helper.NodeEvent, svc)
+				}
 			}
 
 		},
@@ -491,7 +516,7 @@ func New(
 			for _, ing := range ings {
 				store.syncIngress(ing)
 				updateCh.In() <- helper.Event{
-					Type: helper.UpdateEvent,
+					Type: helper.SecretEvent,
 					Obj:  ing,
 				}
 			}
@@ -507,7 +532,7 @@ func New(
 			for _, ing := range ings {
 				store.syncIngress(ing)
 				updateCh.In() <- helper.Event{
-					Type: helper.UpdateEvent,
+					Type: helper.SecretEvent,
 					Obj:  ing,
 				}
 			}
@@ -567,27 +592,58 @@ func (s *k8sStore) enqueueImpactedSvcIngresses(updateCh *channels.RingChannel, e
 		}
 		isAlbSvc := false
 		for _, rule := range ing.Spec.Rules {
+			if rule.HTTP == nil {
+				continue
+			}
 			for _, path := range rule.HTTP.Paths {
-				actionStr := ing.Annotations[fmt.Sprintf(annotations.INGRESS_ALB_ACTIONS_ANNOTATIONS, path.Backend.Service.Name)]
-				if actionStr != "" {
-					var action alb.Action
-					err := json.Unmarshal([]byte(actionStr), &action)
-					if err != nil {
-						klog.Errorf("buildListenerRulesCommon: %s Unmarshal: %s", actionStr, err.Error())
-						continue
-					}
-					for _, sg := range action.ForwardConfig.ServerGroups {
-						if svc.Namespace == ing.Namespace && svc.Name == sg.ServiceName {
-							isAlbSvc = true
-							break
+				if _, ok := ing.Labels[util.KnativeIngress]; ok {
+					actionStr := ing.Annotations[fmt.Sprintf(annotations.INGRESS_ALB_ACTIONS_ANNOTATIONS, path.Backend.Service.Name)]
+					if actionStr != "" {
+						if strings.HasPrefix(actionStr, "[") {
+							tactions := make([]alb.Action, 0)
+							err := json.Unmarshal([]byte(actionStr), &tactions)
+							if err != nil {
+								klog.Errorf("buildListenerRulesCommon: %s Unmarshal: %s", actionStr, err.Error())
+								continue
+							}
+							for _, action := range tactions {
+								if action.ForwardConfig == nil {
+									continue
+								}
+								for _, sg := range action.ForwardConfig.ServerGroups {
+									if svc.Namespace == ing.Namespace && svc.Name == sg.ServiceName {
+										isAlbSvc = true
+										break
+									}
+								}
+							}
+						} else {
+							var action alb.Action
+							err := json.Unmarshal([]byte(actionStr), &action)
+							if err != nil {
+								klog.Errorf("buildListenerRulesCommon: %s Unmarshal: %s", actionStr, err.Error())
+								continue
+							}
+							for _, sg := range action.ForwardConfig.ServerGroups {
+								if svc.Namespace == ing.Namespace && svc.Name == sg.ServiceName {
+									isAlbSvc = true
+									break
+								}
+							}
 						}
 					}
 				}
-				if isAlbSvc == true {
-					break
-				}
 				if svc.Namespace == ing.Namespace && svc.Name == path.Backend.Service.Name {
 					isAlbSvc = true
+				}
+			}
+		}
+		exist, sgps := CheckAnnotationForwardAction(*ing)
+		if exist {
+			for _, sg := range sgps {
+				if svc.Namespace == ing.Namespace && svc.Name == sg.ServiceName {
+					isAlbSvc = true
+					break
 				}
 			}
 		}
@@ -600,6 +656,12 @@ func (s *k8sStore) enqueueImpactedSvcIngresses(updateCh *channels.RingChannel, e
 		}
 	}
 
+	if sgp, ok := svc.Annotations[annotations.AlbServerGroupId]; ok && sgp != "" {
+		updateCh.In() <- helper.Event{
+			Type: eventType,
+			Obj:  svc,
+		}
+	}
 }
 
 func (s *k8sStore) getIngressBySecret(secret *corev1.Secret) []*networking.Ingress {
@@ -713,6 +775,35 @@ func sortIngressSlice(ingresses []*Ingress) {
 	})
 }
 
+func (s *k8sStore) waitCache(stopCh chan struct{}) (bool, error) {
+	if !cache.WaitForCacheSync(stopCh,
+		s.informers.Pod.HasSynced,
+		s.informers.Endpoint.HasSynced,
+		s.informers.Service.HasSynced,
+		s.informers.Node.HasSynced,
+	) {
+		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
+	}
+	if s.informers.k8s118 {
+		if !cache.WaitForCacheSync(stopCh,
+			s.informers.IngressClass.HasSynced,
+		) {
+			runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
+		}
+	}
+
+	// in big clusters, deltas can keep arriving even after HasSynced
+	// functions have returned 'true'
+	time.Sleep(1 * time.Second)
+
+	if !cache.WaitForCacheSync(stopCh,
+		s.informers.Ingress.HasSynced,
+	) {
+		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
+	}
+	return true, nil
+}
+
 // ListIngresses returns the list of Ingresses
 func (s *k8sStore) ListIngresses() []*Ingress {
 	// filter ingress rules
@@ -742,11 +833,19 @@ func (s *k8sStore) GetPod(key string) (*corev1.Pod, error) {
 	return s.listers.Pod.ByKey(key)
 }
 
+func (s *k8sStore) GetIngress(key string) (*networking.Ingress, error) {
+	return s.listers.Ingress.ByKey(key)
+}
+
 // Run initiates the synchronization of the informers and the initial
 // synchronization of the secrets.
 func (s *k8sStore) Run(stopCh chan struct{}) {
 	// start informers
 	s.informers.Run(stopCh)
+}
+
+func (s *k8sStore) WaitCache(stopCh chan struct{}) (bool, error) {
+	return s.waitCache(stopCh)
 }
 
 var runtimeScheme = k8sruntime.NewScheme()
@@ -776,4 +875,71 @@ func isNodePortService(svc *corev1.Service) bool {
 }
 func isLocalModeService(svc *corev1.Service) bool {
 	return svc.Spec.ExternalTrafficPolicy == corev1.ServiceExternalTrafficPolicyTypeLocal
+}
+
+func CheckAnnotationForwardAction(ing networking.Ingress) (bool, []configcache.ServerGroupTuple) {
+	forwardActionSgps := make([]configcache.ServerGroupTuple, 0)
+	for _, rule := range ing.Spec.Rules {
+		if rule.HTTP == nil {
+			continue
+		}
+		for _, path := range rule.HTTP.Paths {
+			actionStr, exist := ing.Annotations[fmt.Sprintf(annotations.INGRESS_ALB_ACTIONS_ANNOTATIONS, path.Backend.Service.Name)]
+			if exist {
+				actionsArray := make([]configcache.Action, 0)
+				err := json.Unmarshal([]byte(actionStr), &actionsArray)
+				if err != nil {
+					klog.Errorf("buildRuleActions: %s Unmarshal: %s", actionStr, err.Error())
+				}
+				for _, action := range actionsArray {
+					actType := strings.ToLower(action.Type)
+					if actType == strings.ToLower(util.RuleActionTypeForward) {
+						forwardActionSgps = append(forwardActionSgps, action.ForwardConfig.ServerGroups...)
+					}
+				}
+			}
+		}
+	}
+	if len(forwardActionSgps) != 0 {
+		return true, forwardActionSgps
+	}
+	return false, nil
+}
+
+func needSyncNodeToALB(oldNode *corev1.Node, newNode *corev1.Node) bool {
+	// need to keep the node who has exclude label in order to be compatible with vk node
+	// It's safe because these nodes will be filtered in build backends func
+
+	if !reflect.DeepEqual(oldNode.Labels, newNode.Labels) {
+		return true
+	}
+
+	// Remove nodes that are about to be deleted by the cluster autoscaler.
+	if !reflect.DeepEqual(oldNode.Spec.Taints, newNode.Spec.Taints) {
+		return true
+	}
+
+	// filter unscheduled node
+	if !reflect.DeepEqual(oldNode.Spec.Unschedulable, newNode.Spec.Unschedulable) {
+		return true
+	}
+
+	var newStatus corev1.ConditionStatus
+	for _, cond := range newNode.Status.Conditions {
+		if cond.Type == corev1.NodeReady {
+			newStatus = cond.Status
+		}
+	}
+	var oldStatus corev1.ConditionStatus
+	for _, cond := range oldNode.Status.Conditions {
+		if cond.Type == corev1.NodeReady {
+			oldStatus = cond.Status
+		}
+	}
+
+	if !reflect.DeepEqual(newStatus, oldStatus) {
+		return true
+	}
+
+	return false
 }

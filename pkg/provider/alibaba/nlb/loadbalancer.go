@@ -392,8 +392,6 @@ func (p *NLBProvider) waitJobFinish(api, jobId string, args ...time.Duration) er
 		}
 
 		retErr = nil
-		klog.Info(resp.Body.GoString())
-		klog.Info(tea.StringValue(resp.Body.Status))
 		return tea.StringValue(resp.Body.Status) == "Succeeded", retErr
 	})
 	return retErr

@@ -2,6 +2,8 @@ package ingress
 
 import (
 	v1 "k8s.io/alibaba-load-balancer-controller/pkg/apis/alibabacloud/v1"
+	ctrlCfg "k8s.io/alibaba-load-balancer-controller/pkg/config"
+	"k8s.io/alibaba-load-balancer-controller/pkg/controller/helper"
 	"k8s.io/alibaba-load-balancer-controller/pkg/util"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/client-go/tools/record"
@@ -33,6 +35,11 @@ type enqueueRequestsForAlbconfigEvent struct {
 func (h *enqueueRequestsForAlbconfigEvent) Create(e event.CreateEvent, queue workqueue.RateLimitingInterface) {
 	albconfig, ok := e.Object.(*v1.AlbConfig)
 	if ok {
+		if !helper.IsAlbConfigHashChanged(albconfig) && !ctrlCfg.ControllerCFG.DryRun {
+			h.logger.Info("albconfig hash not changed, skip.",
+				"albconfig", util.Key(albconfig))
+			return
+		}
 		h.logger.Info("controller: albconfig Create event", "albconfig", util.NamespacedName(albconfig).String())
 		h.enqueueAlbconfig(queue, albconfig)
 	}
@@ -45,6 +52,12 @@ func (h *enqueueRequestsForAlbconfigEvent) Update(e event.UpdateEvent, queue wor
 	if equality.Semantic.DeepEqual(albconfigOld.Annotations, albconfigNew.Annotations) &&
 		equality.Semantic.DeepEqual(albconfigOld.Spec, albconfigNew.Spec) &&
 		equality.Semantic.DeepEqual(albconfigOld.DeletionTimestamp.IsZero(), albconfigNew.DeletionTimestamp.IsZero()) {
+		return
+	}
+
+	if !helper.IsAlbConfigHashChanged(albconfigNew) && !ctrlCfg.ControllerCFG.DryRun {
+		h.logger.Info("albconfig hash not changed, skip.",
+			"albconfig", util.Key(albconfigNew))
 		return
 	}
 

@@ -45,6 +45,7 @@ type AclSpec struct {
 	AclType    string           `json:"AclType" xml:"AclType"`
 	AclStatus  string           `json:"AclStatus" xml:"AclStatus"`
 	AclEntries []AclEntry       `json:"AclEntries" xml:"AclEntries"`
+	AclIds     []string         `json:"AclIds" xml:"AclIds"`
 }
 
 type AclEntry struct {

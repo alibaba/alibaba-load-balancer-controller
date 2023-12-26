@@ -37,3 +37,30 @@ func (*Rule) DefaultRule(path, host, serviceName string) networkingv1.IngressRul
 	}
 	return ret
 }
+
+func (*Rule) DefaultUseAnnotationRule(path, serviceName string) networkingv1.IngressRule {
+	if path == "" {
+		path = "/default-rule"
+	}
+	exact := networkingv1.PathTypeExact
+	return networkingv1.IngressRule{
+		IngressRuleValue: networkingv1.IngressRuleValue{
+			HTTP: &networkingv1.HTTPIngressRuleValue{
+				Paths: []networkingv1.HTTPIngressPath{
+					{
+						Path:     path,
+						PathType: &exact,
+						Backend: networkingv1.IngressBackend{
+							Service: &networkingv1.IngressServiceBackend{
+								Name: serviceName,
+								Port: networkingv1.ServiceBackendPort{
+									Name: "use-annotation",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}

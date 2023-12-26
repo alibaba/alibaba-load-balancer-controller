@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/controller/ingress/reconcile/annotations"
 	"k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
@@ -68,15 +69,15 @@ func (t *defaultModelBuildTask) buildServerGroupSpec(_ context.Context,
 	tags = append(tags, []alb.ALBTag{
 		{
 			Key:   util.ServiceNamespaceTagKey,
-			Value: ing.Namespace,
+			Value: util.AvoidTagValueKeyword(ing.Namespace),
 		},
 		{
 			Key:   util.IngressNameTagKey,
-			Value: ing.Name,
+			Value: util.AvoidTagValueKeyword(ing.Name),
 		},
 		{
 			Key:   util.ServiceNameTagKey,
-			Value: svc.Name,
+			Value: util.AvoidTagValueKeyword(svc.Name),
 		},
 		{
 			Key:   util.ServicePortTagKey,
@@ -97,7 +98,9 @@ func (t *defaultModelBuildTask) buildServerGroupSpec(_ context.Context,
 	sgpSpec.Tags = tags
 	sgpSpec.HealthCheckConfig = buildServerGroupHealthCheckConfig(ing)
 	sgpSpec.ServerGroupName = t.buildServerGroupName(ing, svc, port)
+	sgpSpec.UpstreamKeepaliveEnabled = buildServerGroupKeepalived(ing)
 	sgpSpec.Scheduler = t.buildServerGroupScheduler(ing)
+	sgpSpec.UchConfig = t.buildServerGroupUchSchedulerConfig(ing)
 	sgpSpec.Protocol = t.buildServerGroupProtocol(ing)
 	sgpSpec.StickySessionConfig = buildServerGroupStickySessionConfig(ing)
 	sgpSpec.ServerGroupType = t.defaultServerGroupType
@@ -113,6 +116,8 @@ func checkBackendSchedulerAnnotations(ing *networking.Ingress) error {
 		case "wlc":
 			return nil
 		case "sch":
+			return nil
+		case "uch":
 			return nil
 		default:
 			return fmt.Errorf("unkown backend scheduler [%s]", v)
@@ -168,11 +173,25 @@ func (t *defaultModelBuildTask) buildServerGroupScheduler(ing *networking.Ingres
 			backendScheduler = util.ServerGroupSchedulerWlc
 		case "sch":
 			backendScheduler = util.ServerGroupSchedulerSch
+		case "uch":
+			backendScheduler = util.ServerGroupSchedulerUch
 		default:
 			backendScheduler = util.ServerGroupSchedulerWrr
 		}
 	}
 	return backendScheduler
+}
+
+func (t *defaultModelBuildTask) buildServerGroupUchSchedulerConfig(ing *networking.Ingress) alb.UchConfig {
+	uchSchedulerType := util.ServerGroupSchedulerUchType
+	uchSchedulerValue := ""
+	if v, ok := ing.Annotations[annotations.AlbBackendUchSchedulerValue]; ok {
+		uchSchedulerValue = v
+	}
+	return alb.UchConfig{
+		Type:  uchSchedulerType,
+		Value: uchSchedulerValue,
+	}
 }
 
 func (t *defaultModelBuildTask) buildServerGroupProtocol(ing *networking.Ingress) string {
@@ -208,9 +227,12 @@ func buildServerGroupHealthCheckConfig(ing *networking.Ingress) alb.HealthCheckC
 	if v, ok := ing.Annotations[annotations.HealthCheckProtocol]; ok {
 		healthcheckProtocol = v
 	}
-	healthcheckCode := util.DefaultServerGroupHealthCheckHTTPCodes
+	var healthcheckCodes []string
 	if v, ok := ing.Annotations[annotations.HealthCheckHTTPCode]; ok {
-		healthcheckCode = v
+		healthcheckCodes = strings.Split(v, ",")
+	}
+	if len(healthcheckCodes) == 0 {
+		healthcheckCodes = append(healthcheckCodes, util.DefaultServerGroupHealthCheckHTTPCodes)
 	}
 	healthcheckTimeout := util.DefaultServerGroupHealthCheckTimeout
 	if v, ok := ing.Annotations[annotations.HealthCheckTimeout]; ok {
@@ -244,8 +266,16 @@ func buildServerGroupHealthCheckConfig(ing *networking.Ingress) alb.HealthCheckC
 			unhealthyThreshold = val
 		}
 	}
+	healthyCheckConnectPort := util.DefaultServerGroupHealthCheckConnectPort
+	if v, ok := ing.Annotations[annotations.HealthCheckConnectPort]; ok {
+		if val, err := strconv.Atoi(v); err != nil {
+			klog.Error(err.Error())
+		} else {
+			healthyCheckConnectPort = val
+		}
+	}
 	return alb.HealthCheckConfig{
-		HealthCheckConnectPort:         util.DefaultServerGroupHealthCheckConnectPort,
+		HealthCheckConnectPort:         healthyCheckConnectPort,
 		HealthCheckEnabled:             healthCheckEnabled,
 		HealthCheckHost:                util.DefaultServerGroupHealthCheckHost,
 		HealthCheckHttpVersion:         util.DefaultServerGroupHealthCheckHttpVersion,
@@ -257,9 +287,7 @@ func buildServerGroupHealthCheckConfig(ing *networking.Ingress) alb.HealthCheckC
 		HealthyThreshold:               healthyThreshold,
 		UnhealthyThreshold:             unhealthyThreshold,
 		HealthCheckTcpFastCloseEnabled: util.DefaultServerGroupHealthCheckTcpFastCloseEnabled,
-		HealthCheckHttpCodes: []string{
-			healthcheckCode,
-		},
+		HealthCheckHttpCodes:           healthcheckCodes,
 		HealthCheckCodes: []string{
 			util.DefaultServerGroupHealthCheckCodes,
 		},
@@ -289,4 +317,12 @@ func buildServerGroupStickySessionConfig(ing *networking.Ingress) alb.StickySess
 		StickySessionEnabled: sessionStickEnabled,
 		StickySessionType:    sessionStickType,
 	}
+}
+
+func buildServerGroupKeepalived(ing *networking.Ingress) bool {
+	serverGroupUpstreamKeepaliveEnabled := util.DefaultServerGroupUpstreamKeepaliveEnabled
+	if v, ok := ing.Annotations[annotations.AlbBackendKeepalive]; ok && v == "true" {
+		serverGroupUpstreamKeepaliveEnabled = true
+	}
+	return serverGroupUpstreamKeepaliveEnabled
 }

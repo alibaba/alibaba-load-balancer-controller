@@ -10,7 +10,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	cassdk "github.com/aliyun/alibaba-cloud-sdk-go/services/cas"
+	"k8s.io/alibaba-load-balancer-controller/pkg/model"
 	albmodel "k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
 	"k8s.io/alibaba-load-balancer-controller/pkg/model/alb/core"
 
@@ -60,6 +60,10 @@ func (s *secretStackApplier) Apply(ctx context.Context) error {
 		errCreate error
 		wgCreate  sync.WaitGroup
 	)
+	resCertMapByCertName := make(map[string][]*albmodel.SecretCertificate)
+	for _, resCert := range resCerts {
+		resCertMapByCertName[resCert.Spec.CertName] = append(resCertMapByCertName[resCert.Spec.CertName], resCert)
+	}
 	for _, cert := range unmatchedResCerts {
 		wgCreate.Add(1)
 		go func(cert *albmodel.SecretCertificate) {
@@ -70,9 +74,11 @@ func (s *secretStackApplier) Apply(ctx context.Context) error {
 			if errCreate == nil && err != nil {
 				errCreate = err
 			}
-			cert.SetStatus(albmodel.SecretCertificateStatus{
-				CertIdentifier: certId,
-			})
+			for _, resCert := range resCertMapByCertName[cert.Spec.CertName] {
+				resCert.SetStatus(albmodel.SecretCertificateStatus{
+					CertIdentifier: certId,
+				})
+			}
 		}(cert)
 	}
 	wgCreate.Wait()
@@ -109,20 +115,19 @@ func (s *secretStackApplier) PostApply(ctx context.Context) error {
 
 type resAndSDKCertificatePair struct {
 	ResCert *albmodel.SecretCertificate
-	SdkCert cassdk.CertificateInfo
+	SdkCert model.CertificateInfo
 }
 
-func matchResAndSDKCertificates(resCerts []*albmodel.SecretCertificate, sdkCerts []cassdk.CertificateInfo) ([]resAndSDKCertificatePair, []*albmodel.SecretCertificate, []cassdk.CertificateInfo) {
+func matchResAndSDKCertificates(resCerts []*albmodel.SecretCertificate, sdkCerts []model.CertificateInfo) ([]resAndSDKCertificatePair, []*albmodel.SecretCertificate, []model.CertificateInfo) {
 	var matchedResAndSDKCerts []resAndSDKCertificatePair
 	var unmatchedResCerts []*albmodel.SecretCertificate
-	var unmatchedSDKCerts []cassdk.CertificateInfo
+	var unmatchedSDKCerts []model.CertificateInfo
 	resCertsByName := mapResCertByName(resCerts)
 	sdkCertsByName := mapSDKCertByName(sdkCerts)
 
 	resCertNames := sets.StringKeySet(resCertsByName)
 	sdkCertNames := sets.StringKeySet(sdkCertsByName)
 
-	// multi res certi when use same secret on diff listen
 	for _, cert := range resCerts {
 		sdkCert := sdkCertsByName[cert.Spec.CertName]
 		if sdkCert == nil {
@@ -152,8 +157,8 @@ func mapResCertByName(resCerts []*albmodel.SecretCertificate) map[string]*albmod
 	}
 	return resCertsByName
 }
-func mapSDKCertByName(sdkCerts []cassdk.CertificateInfo) map[string]*cassdk.CertificateInfo {
-	sdkCertsByName := make(map[string]*cassdk.CertificateInfo)
+func mapSDKCertByName(sdkCerts []model.CertificateInfo) map[string]*model.CertificateInfo {
+	sdkCertsByName := make(map[string]*model.CertificateInfo)
 	for i, cert := range sdkCerts {
 		sdkCertsByName[cert.CertName] = &sdkCerts[i]
 	}

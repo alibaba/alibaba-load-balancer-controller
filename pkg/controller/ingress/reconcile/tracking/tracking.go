@@ -60,7 +60,7 @@ func (p *defaultTrackingProvider) StackTags(stack core.Manager) map[string]strin
 	stackID := stack.StackID()
 	return map[string]string{
 		p.ClusterNameTagKey(): p.clusterID,
-		p.AlbConfigTagKey():   stackID.String(),
+		p.AlbConfigTagKey():   util.AvoidTagValueKeyword(stackID.String()),
 	}
 }
 

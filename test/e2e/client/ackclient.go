@@ -6,8 +6,8 @@ import (
 
 	"k8s.io/alibaba-load-balancer-controller/test/e2e/options"
 
-	cs "github.com/alibabacloud-go/cs-20151215/v2/client"
-	openapi "github.com/alibabacloud-go/darabonba-openapi/client"
+	cs "github.com/alibabacloud-go/cs-20151215/v3/client"
+	openapi "github.com/alibabacloud-go/darabonba-openapi/v2/client"
 	"github.com/alibabacloud-go/tea/tea"
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/base"
 	"k8s.io/apimachinery/pkg/util/wait"

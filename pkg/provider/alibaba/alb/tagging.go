@@ -148,6 +148,44 @@ func (m *ALBProvider) ListALBServerGroupsWithTags(ctx context.Context, tagFilter
 
 	return serverGroupsWithTags, nil
 }
+
+func (m *ALBProvider) SelectALBServerGroupsByID(ctx context.Context, serverGroupID string) (alb.ServerGroupWithTags, error) {
+	traceID := ctx.Value(util.TraceID)
+
+	if serverGroupID == "" {
+		return alb.ServerGroupWithTags{}, fmt.Errorf("serverGroupID is empty")
+	}
+	sgpReq := albsdk.CreateListServerGroupsRequest()
+	sgpIds := []string{serverGroupID}
+	sgpReq.ServerGroupIds = &sgpIds
+	startTime := time.Now()
+	m.logger.V(util.MgrLogLevel).Info("listing server groups by id",
+		"serverGroupID", serverGroupID,
+		"traceID", traceID,
+		"startTime", startTime,
+		util.Action, util.ListALBServerGroups)
+	sgpResp, err := m.auth.ALB.ListServerGroups(sgpReq)
+	if err != nil {
+		return alb.ServerGroupWithTags{}, err
+	}
+	m.logger.V(util.MgrLogLevel).Info("listed server groups by id",
+		"requestID", sgpResp.RequestId,
+		"traceID", traceID,
+		"serverGroups", sgpResp.ServerGroups,
+		"elapsedTime", time.Since(startTime).Milliseconds(),
+		util.Action, util.ListALBServerGroups)
+
+	if sgpResp.TotalCount == 0 {
+		return alb.ServerGroupWithTags{}, fmt.Errorf("ServerGroupID: %s not exist", serverGroupID)
+	}
+	sdkSgp := sgpResp.ServerGroups[0]
+	tagMap := transSDKTagListToMap(sdkSgp.Tags)
+	serverGroupWithTag := alb.ServerGroupWithTags{
+		ServerGroup: sdkSgp,
+		Tags:        tagMap,
+	}
+	return serverGroupWithTag, nil
+}
 func (m *ALBProvider) ListALBsWithTags(ctx context.Context, tagFilters map[string]string) ([]alb.AlbLoadBalancerWithTags, error) {
 	traceID := ctx.Value(util.TraceID)
 
@@ -192,6 +230,8 @@ func transSDKGetAlbLoadBalancerAttributeResponseToNormal(resp *albsdk.GetLoadBal
 	return &albsdk.LoadBalancer{
 		AddressAllocatedMode:         resp.AddressAllocatedMode,
 		AddressType:                  resp.AddressType,
+		AddressIpVersion:             resp.AddressIpVersion,
+		Ipv6AddressType:              resp.Ipv6AddressType,
 		BandwidthCapacity:            resp.BandwidthCapacity,
 		BandwidthPackageId:           resp.BandwidthPackageId,
 		CreateTime:                   resp.CreateTime,

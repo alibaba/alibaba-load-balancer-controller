@@ -43,9 +43,9 @@ func GetLogMessage(err error) string {
 		return ""
 	}
 	var message string
-	sub := re.FindSubmatch([]byte(err.Error()))
+	sub := re.FindStringSubmatch(err.Error())
 	if len(sub) > 1 {
-		message = string(sub[1])
+		message = sub[1]
 	} else {
 		message = err.Error()
 	}
@@ -60,6 +60,10 @@ const (
 	IngressEventReasonFailedBuildModel       = "FailedBuildModel"
 	IngressEventReasonFailedApplyModel       = "FailedApplyModel"
 	IngressEventReasonSuccessfullyReconciled = "SuccessfullyReconciled"
+
+	// Service events
+	ServiceEventReasonFailedUpdateEndpoints  = "FailedUpdateEndpoints"
+	ServiceEventReasonSuccessfullyReconciled = "SuccessfullyReconciled"
 )
 
 // EventType type of event associated with an informer
@@ -72,8 +76,8 @@ const (
 	UpdateEvent EventType = "UPDATE"
 	// DeleteEvent event associated when an object is removed from an informer
 	IngressDeleteEvent EventType = "DELETE"
-	// ConfigurationEvent event associated when a controller configuration object is created or updated
-	ConfigurationEvent EventType = "CONFIGURATION"
+	// AlbConfigEvent event associated when a controller ALB CONFIG object is created or updated
+	AlbConfigEvent EventType = "ALBCONFIG"
 
 	// NodeEvent event associated when a controller configuration object is created or updated
 	NodeEvent EventType = "NODE"

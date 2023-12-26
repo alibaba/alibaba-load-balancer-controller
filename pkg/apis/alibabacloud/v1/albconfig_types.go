@@ -84,20 +84,31 @@ type LoadBalancerSpec struct {
 	Name                         string                       `json:"name" protobuf:"bytes,2,opt,name=name"`
 	AddressAllocatedMode         string                       `json:"addressAllocatedMode" protobuf:"bytes,3,opt,name=addressAllocatedMode"`
 	AddressType                  string                       `json:"addressType" protobuf:"bytes,4,opt,name=addressType"`
-	ResourceGroupId              string                       `json:"resourceGroupId" protobuf:"bytes,5,opt,name=resourceGroupId"`
-	Edition                      string                       `json:"edition" protobuf:"bytes,6,opt,name=edition"`
-	ZoneMappings                 []ZoneMapping                `json:"zoneMappings" protobuf:"bytes,7,rep,name=zoneMappings"`
-	AccessLogConfig              AccessLogConfig              `json:"accessLogConfig" protobuf:"bytes,8,opt,name=accessLogConfig"`
-	DeletionProtectionEnabled    *bool                        `json:"deletionProtectionEnabled" protobuf:"bytes,9,opt,name=deletionProtectionEnabled"`
-	BillingConfig                BillingConfig                `json:"billingConfig" protobuf:"bytes,10,opt,name=billingConfig"`
-	ForceOverride                *bool                        `json:"forceOverride" protobuf:"bytes,11,opt,name=forceOverride"`
-	ModificationProtectionConfig ModificationProtectionConfig `json:"modificationProtectionConfig" protobuf:"bytes,12,opt,name=modificationProtectionConfig"`
+	Ipv6AddressType              string                       `json:"ipv6AddressType" protobuf:"bytes,5,opt,name=ipv6AddressType"`
+	AddressIpVersion             string                       `json:"addressIpVersion" protobuf:"bytes,6,opt,name=addressIpVersion"`
+	ResourceGroupId              string                       `json:"resourceGroupId" protobuf:"bytes,7,opt,name=resourceGroupId"`
+	Edition                      string                       `json:"edition" protobuf:"bytes,8,opt,name=edition"`
+	ZoneMappings                 []ZoneMapping                `json:"zoneMappings" protobuf:"bytes,9,rep,name=zoneMappings"`
+	AccessLogConfig              AccessLogConfig              `json:"accessLogConfig" protobuf:"bytes,10,opt,name=accessLogConfig"`
+	DeletionProtectionEnabled    *bool                        `json:"deletionProtectionEnabled" protobuf:"bytes,11,opt,name=deletionProtectionEnabled"`
+	BillingConfig                BillingConfig                `json:"billingConfig" protobuf:"bytes,12,opt,name=billingConfig"`
+	ForceOverride                *bool                        `json:"forceOverride" protobuf:"bytes,13,opt,name=forceOverride"`
+	ModificationProtectionConfig ModificationProtectionConfig `json:"modificationProtectionConfig" protobuf:"bytes,14,opt,name=modificationProtectionConfig"`
+	Tags                         []Tag                        `json:"tags" protobuf:"bytes,15,opt,name=tags"`
+	ListenerForceOverride        *bool                        `json:"listenerForceOverride" protobuf:"bytes,16,opt,name=listenerForceOverride"`
+}
+
+type Tag struct {
+	Key   string `json:"key" protobuf:"bytes,1,opt,name=key"`
+	Value string `json:"value" protobuf:"bytes,2,opt,name=value"`
 }
 
 // ZoneMapping is a nested struct in alb response
 type ZoneMapping struct {
-	VSwitchId string `json:"vSwitchId" protobuf:"bytes,1,opt,name=vSwitchId"`
-	ZoneId    string `json:"zoneId" protobuf:"bytes,2,opt,name=zoneId"`
+	VSwitchId    string `json:"vSwitchId" protobuf:"bytes,1,opt,name=vSwitchId"`
+	ZoneId       string `json:"zoneId" protobuf:"bytes,2,opt,name=zoneId"`
+	AllocationId string `json:"allocationId" protobuf:"bytes,3,opt,name=allocationId"`
+	EipType      string `json:"eipType" protobuf:"bytes,4,opt,name=eipType"`
 }
 
 type AccessLogConfig struct {
@@ -112,6 +123,7 @@ type BillingConfig struct {
 	InternetBandwidth  int    `json:"internetBandwidth" protobuf:"bytes,1,opt,name=internetBandwidth"`
 	InternetChargeType string `json:"internetChargeType" protobuf:"bytes,2,opt,name=internetChargeType"`
 	PayType            string `json:"payType" protobuf:"bytes,3,opt,name=payType"`
+	BandWidthPackageId string `json:"bandWidthPackageId" protobuf:"bytes,4,opt,name=bandWidthPackageId"`
 }
 type ModificationProtectionConfig struct {
 	Reason string `json:"reason" protobuf:"bytes,1,opt,name=reason"`
@@ -223,4 +235,5 @@ type AclConfig struct {
 	AclName    string   `json:"aclName" protobuf:"bytes,1,opt,name=aclName"`
 	AclType    string   `json:"aclType" protobuf:"bytes,2,opt,name=aclType"`
 	AclEntries []string `json:"aclEntries" protobuf:"bytes,3,opt,name=aclEntries"`
+	AclIds     []string `json:"aclIds" protobuf:"bytes,4,opt,name=aclIds"`
 }

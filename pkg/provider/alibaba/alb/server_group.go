@@ -12,6 +12,7 @@ import (
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/util"
 
+	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
 	albsdk "github.com/aliyun/alibaba-cloud-sdk-go/services/alb"
 	"github.com/pkg/errors"
 	"k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
@@ -87,7 +88,6 @@ func (m *ALBProvider) CreateALBServerGroup(ctx context.Context, resSGP *alb.Serv
 
 	return buildReServerGroupStatus(createSgpResp.ServerGroupId), nil
 }
-
 func (m *ALBProvider) waitServerGroupStatus(ctx context.Context, serverGroupID string) error {
 	if serverGroupID == "" {
 		return fmt.Errorf("serverGroupID is empty")
@@ -105,13 +105,13 @@ func (m *ALBProvider) waitServerGroupStatus(ctx context.Context, serverGroupID s
 			return fmt.Errorf("ServerGroupID: %s not exist", serverGroupID)
 		}
 		sgpResp := sgpListResp.ServerGroups[0]
-		if isServerGroupAvailable(sgpResp.ServerGroupStatus) {
+		if isServerGroupActive(sgpResp.ServerGroupStatus) {
 			return nil
 		}
 	}
 	return fmt.Errorf("ServerGroupID: %s not ready", serverGroupID)
 }
-func isServerGroupAvailable(status string) bool {
+func isServerGroupActive(status string) bool {
 	return strings.EqualFold(status, util.ServerGroupStatusAvailable)
 }
 
@@ -166,8 +166,10 @@ func (m *ALBProvider) updateServerGroupAttribute(ctx context.Context, resSGP *al
 		isHealthCheckConfigNeedUpdate,
 		isStickySessionConfigNeedUpdate,
 		isServerGroupNameNeedUpdate,
+		isServerGroupKeepaliveNeedUpdate,
 		isServiceNameNeedUpdate,
-		isSchedulerNeedUpdate bool
+		isSchedulerNeedUpdate,
+		isUchConfigNeedUpdate bool
 	)
 	if resSGP.Spec.ServerGroupName != sdkSGP.ServerGroupName {
 		m.logger.V(util.MgrLogLevel).Info("ServerGroupName update:",
@@ -195,6 +197,28 @@ func (m *ALBProvider) updateServerGroupAttribute(ctx context.Context, resSGP *al
 			"serverGroupID", sdkSGP.ServerGroupId,
 			"traceID", traceID)
 		isSchedulerNeedUpdate = true
+	}
+	if resSGP.Spec.UpstreamKeepaliveEnabled != sdkSGP.UpstreamKeepaliveEnabled {
+		m.logger.V(util.MgrLogLevel).Info("UpstreamKeepaliveEnabled update:",
+			"res", resSGP.Spec.UpstreamKeepaliveEnabled,
+			"sdk", sdkSGP.UpstreamKeepaliveEnabled,
+			"serverGroupID", sdkSGP.ServerGroupId,
+			"traceID", traceID)
+		isServerGroupKeepaliveNeedUpdate = true
+	}
+
+	if resSGP.Spec.Scheduler == util.ServerGroupSchedulerUch {
+		if err := checkUchConfigValid(resSGP.Spec.UchConfig); err != nil {
+			return nil, err
+		}
+		if !reflect.DeepEqual(resSGP.Spec.UchConfig, sdkSGP.UchConfig) {
+			m.logger.V(util.MgrLogLevel).Info("UchConfig update:",
+				"res", resSGP.Spec.UchConfig,
+				"sdk", sdkSGP.UchConfig,
+				"serverGroupID", sdkSGP.ServerGroupId,
+				"traceID", traceID)
+			isUchConfigNeedUpdate = true
+		}
 	}
 
 	if err := checkHealthCheckConfigValid(resSGP.Spec.HealthCheckConfig); err != nil {
@@ -239,8 +263,9 @@ func (m *ALBProvider) updateServerGroupAttribute(ctx context.Context, resSGP *al
 		isStickySessionConfigNeedUpdate = true
 	}
 
-	if !isServerGroupNameNeedUpdate && !isSchedulerNeedUpdate &&
+	if !isServerGroupNameNeedUpdate && !isSchedulerNeedUpdate && !isUchConfigNeedUpdate &&
 		!isHealthCheckConfigNeedUpdate && !isStickySessionConfigNeedUpdate &&
+		!isServerGroupKeepaliveNeedUpdate &&
 		!isServiceNameNeedUpdate {
 		return nil, nil
 	}
@@ -257,11 +282,18 @@ func (m *ALBProvider) updateServerGroupAttribute(ctx context.Context, resSGP *al
 	if isSchedulerNeedUpdate {
 		updateSgpReq.Scheduler = resSGP.Spec.Scheduler
 	}
+	if isServerGroupKeepaliveNeedUpdate {
+		updateSgpReq.UpstreamKeepaliveEnabled = requests.NewBoolean(resSGP.Spec.UpstreamKeepaliveEnabled)
+	}
 	if isHealthCheckConfigNeedUpdate {
 		updateSgpReq.HealthCheckConfig = *transSDKHealthCheckConfigToUpdateSGP(resSGP.Spec.HealthCheckConfig)
 	}
 	if isStickySessionConfigNeedUpdate {
 		updateSgpReq.StickySessionConfig = *transSDKStickySessionConfigToUpdateSGP(resSGP.Spec.StickySessionConfig)
+	}
+	if isUchConfigNeedUpdate {
+		updateSgpReq.Scheduler = resSGP.Spec.Scheduler
+		updateSgpReq.UchConfig = *transSDKUchConfigToUpdateSGP(resSGP.Spec.UchConfig)
 	}
 
 	startTime := time.Now()
@@ -284,7 +316,9 @@ func (m *ALBProvider) updateServerGroupAttribute(ctx context.Context, resSGP *al
 		"requestID", updateSgpResp.RequestId,
 		"elapsedTime", time.Since(startTime).Milliseconds(),
 		util.Action, util.UpdateALBServerGroupAttribute)
-
+	if err := m.waitServerGroupStatus(ctx, updateSgpReq.ServerGroupId); err != nil {
+		return nil, err
+	}
 	return updateSgpResp, nil
 }
 
@@ -303,11 +337,21 @@ func buildSDKServerGroupCreateRequest(sgpSpec alb.ServerGroupSpec) (*albsdk.Crea
 		return nil, fmt.Errorf("invalid server group scheduler: %s", sgpSpec.Scheduler)
 	}
 	sgpReq.Scheduler = sgpSpec.Scheduler
+	if sgpSpec.Scheduler == util.ServerGroupSchedulerUch {
+		if err := checkUchConfigValid(sgpSpec.UchConfig); err != nil {
+			return nil, err
+		}
+		sgpReq.UchConfig = *transSDKUchConfigToCreateSGP(sgpSpec.UchConfig)
+	}
 
 	if !isServerGroupProtocolValid(sgpSpec.Protocol) {
 		return nil, fmt.Errorf("invalid server group protocol: %s", sgpSpec.Protocol)
 	}
 	sgpReq.Protocol = sgpSpec.Protocol
+
+	if sgpSpec.UpstreamKeepaliveEnabled {
+		sgpReq.UpstreamKeepaliveEnabled = requests.NewBoolean(sgpSpec.UpstreamKeepaliveEnabled)
+	}
 
 	sgpReq.ResourceGroupId = sgpSpec.ResourceGroupId
 	if err := checkHealthCheckConfigValid(sgpSpec.HealthCheckConfig); err != nil {
@@ -385,6 +429,18 @@ func checkStickySessionConfigValid(conf alb.StickySessionConfig) error {
 	return nil
 }
 
+func checkUchConfigValid(conf alb.UchConfig) error {
+	if !strings.EqualFold(conf.Type, util.ServerGroupSchedulerUchType) {
+		return fmt.Errorf("invalid server group UchConfigType: %v", conf.Type)
+	}
+
+	if len(conf.Value) == 0 {
+		return fmt.Errorf("invalid server group UchConfigValue: %v", conf.Value)
+	}
+
+	return nil
+}
+
 func isServerGroupResourceInUseError(err error) bool {
 	if strings.Contains(err.Error(), "ResourceInUse.ServerGroup") ||
 		strings.Contains(err.Error(), "IncorrectStatus.ServerGroup") {
@@ -396,7 +452,8 @@ func isServerGroupResourceInUseError(err error) bool {
 func isServerGroupSchedulerValid(scheduler string) bool {
 	if strings.EqualFold(scheduler, util.ServerGroupSchedulerWrr) ||
 		strings.EqualFold(scheduler, util.ServerGroupSchedulerWlc) ||
-		strings.EqualFold(scheduler, util.ServerGroupSchedulerSch) {
+		strings.EqualFold(scheduler, util.ServerGroupSchedulerSch) ||
+		strings.EqualFold(scheduler, util.ServerGroupSchedulerUch) {
 		return true
 	}
 	return false
@@ -456,6 +513,13 @@ func transSDKStickySessionConfigToCreateSGP(conf alb.StickySessionConfig) *albsd
 	}
 }
 
+func transSDKUchConfigToCreateSGP(conf alb.UchConfig) *albsdk.CreateServerGroupUchConfig {
+	return &albsdk.CreateServerGroupUchConfig{
+		Type:  conf.Type,
+		Value: conf.Value,
+	}
+}
+
 func transSDKHealthCheckConfigToUpdateSGP(conf alb.HealthCheckConfig) *albsdk.UpdateServerGroupAttributeHealthCheckConfig {
 	if !conf.HealthCheckEnabled {
 		return &albsdk.UpdateServerGroupAttributeHealthCheckConfig{
@@ -493,5 +557,12 @@ func transSDKStickySessionConfigToUpdateSGP(conf alb.StickySessionConfig) *albsd
 		Cookie:               conf.Cookie,
 		CookieTimeout:        strconv.Itoa(conf.CookieTimeout),
 		StickySessionType:    conf.StickySessionType,
+	}
+}
+
+func transSDKUchConfigToUpdateSGP(conf alb.UchConfig) *albsdk.UpdateServerGroupAttributeUchConfig {
+	return &albsdk.UpdateServerGroupAttributeUchConfig{
+		Type:  conf.Type,
+		Value: conf.Value,
 	}
 }

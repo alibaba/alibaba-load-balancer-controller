@@ -8,7 +8,7 @@ import (
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/util"
 
-	"k8s.io/alibaba-load-balancer-controller/pkg/controller/helper/k8s"
+	"k8s.io/alibaba-load-balancer-controller/pkg/controller/helper"
 
 	prvd "k8s.io/alibaba-load-balancer-controller/pkg/provider"
 
@@ -80,7 +80,7 @@ func (s *serverApplier) Apply(ctx context.Context) error {
 		if err := s.albProvider.ReplaceALBServers(ctx, s.serverGroupID, unmatchedResEndpoints, unmatchedSDKEndpoints); err != nil {
 			return err
 		}
-		_ = updateTargetHealthPodCondition(ctx, s.kubeClient, k8s.BuildReadinessGatePodConditionType(), s.endpoints)
+		_ = updateTargetHealthPodCondition(ctx, s.kubeClient, helper.BuildReadinessGatePodConditionType(), s.endpoints)
 
 		return nil
 	}
@@ -93,7 +93,7 @@ func (s *serverApplier) Apply(ctx context.Context) error {
 		if err := s.albProvider.RegisterALBServers(ctx, s.serverGroupID, unmatchedResEndpoints); err != nil {
 			return err
 		}
-		_ = updateTargetHealthPodCondition(ctx, s.kubeClient, k8s.BuildReadinessGatePodConditionType(), s.endpoints)
+		_ = updateTargetHealthPodCondition(ctx, s.kubeClient, helper.BuildReadinessGatePodConditionType(), s.endpoints)
 	}
 
 	return nil

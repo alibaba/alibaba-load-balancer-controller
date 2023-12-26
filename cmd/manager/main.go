@@ -75,6 +75,7 @@ func main() {
 	} else {
 		cloud = alibaba.NewAlibabaCloud()
 	}
+	log.Info("Creating context.")
 	ctx := shared.NewSharedContext(cloud)
 
 	log.Info("Registering Components.")

@@ -4,17 +4,18 @@ import (
 	"strings"
 	"testing"
 
+	"k8s.io/alibaba-load-balancer-controller/pkg/apis"
+
 	"k8s.io/alibaba-load-balancer-controller/pkg/util"
 
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 	"k8s.io/alibaba-load-balancer-controller/test/e2e/client"
 	"k8s.io/alibaba-load-balancer-controller/test/e2e/framework"
 	"k8s.io/alibaba-load-balancer-controller/test/e2e/options"
 	"k8s.io/alibaba-load-balancer-controller/test/e2e/testcase/alb"
-	"k8s.io/klog/v2"
-	"k8s.io/kubernetes/test/e2e/framework/ginkgowrapper"
 
-	"github.com/onsi/ginkgo"
-	"github.com/onsi/gomega"
+	"k8s.io/klog/v2"
 )
 
 func init() {
@@ -34,20 +35,19 @@ func TestE2E(t *testing.T) {
 	f := framework.NewFrameWork(c)
 	klog.Infof("test config: %s", util.PrettyJson(options.TestConfig))
 
-	gomega.RegisterFailHandler(ginkgowrapper.Fail)
+	gomega.RegisterFailHandler(ginkgo.Fail)
+
+	ginkgo.BeforeSuite(func() {
+		err = f.BeforeSuit()
+		gomega.Expect(err).To(gomega.BeNil())
+	})
+
+	ginkgo.AfterSuite(func() {
+		err = f.AfterSuit()
+		gomega.Expect(err).To(gomega.BeNil())
+	})
 
 	ginkgo.Describe("Run cloud controller manager e2e tests", func() {
-
-		ginkgo.BeforeSuite(func() {
-			err = f.BeforeSuit()
-			gomega.Expect(err).To(gomega.BeNil())
-		})
-
-		ginkgo.AfterSuite(func() {
-			err = f.AfterSuit()
-			gomega.Expect(err).To(gomega.BeNil())
-		})
-
 		AddControllerTests(f)
 	})
 
@@ -65,12 +65,19 @@ func AddControllerTests(f *framework.Framework) {
 	for _, c := range controllers {
 		switch c {
 		case "alb":
-			albFlags := strings.Split(options.TestConfig.ALBFlags, ",")
+			var albFlags []string
+			if options.TestConfig.ALBFlags != "" {
+				albFlags = strings.Split(options.TestConfig.ALBFlags, ",")
+			}
+			if err := apis.AddToScheme(f.Client.RuntimeClient.Scheme()); err != nil {
+				klog.Errorf("AddToScheme failed %v", err)
+				return
+			}
 			ginkgo.Describe("alb ingress controller tests", func() {
-				alb.RunAlbConfigTestCases(f)
+				alb.InitAlbConfigE2ECases()
+				alb.ExecuteAlbConfigE2ECases(f, albFlags)
 				alb.InitAlbIngressE2ECases()
 				alb.ExecuteIngressE2ECases(f, albFlags)
-				alb.CleanAlbconfigTestCases(f)
 			})
 		default:
 			klog.Infof("%s controller is not supported", c)

@@ -1,10 +1,9 @@
 package helper
 
 import (
-	"strings"
-
 	v1 "k8s.io/api/core/v1"
 	discovery "k8s.io/api/discovery/v1beta1"
+	"strings"
 )
 
 func LogEndpoints(eps *v1.Endpoints) string {

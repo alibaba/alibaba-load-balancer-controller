@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"k8s.io/alibaba-load-balancer-controller/pkg/util"
+
 	"k8s.io/klog/v2"
 
 	prvd "k8s.io/alibaba-load-balancer-controller/pkg/provider"
@@ -67,6 +69,9 @@ func (d *casCertDiscovery) loadDomainsForAllCertificates(ctx context.Context) (m
 	}
 	domainsByCertID := make(map[string]sets.String, len(certs))
 	for _, cert := range certs {
+		if cert.Algorithm == util.CertAlgorithmSM2 {
+			continue
+		}
 		domains := sets.NewString(cert.CommonName, cert.Sans)
 		domainsByCertID[cert.CertIdentifier] = domains
 	}
@@ -76,10 +81,12 @@ func (d *casCertDiscovery) loadDomainsForAllCertificates(ctx context.Context) (m
 func (d *casCertDiscovery) domainMatchesHost(domainName string, tlsHost string) bool {
 	isMatch := false
 	domains := strings.Split(domainName, ",")
+	lower_host := strings.ToLower(tlsHost)
 	for _, dom := range domains {
-		if strings.HasPrefix(dom, "*.") {
-			ds := strings.Split(dom, ".")
-			hs := strings.Split(tlsHost, ".")
+		lower_dom := strings.ToLower(dom)
+		if strings.HasPrefix(lower_dom, "*.") {
+			ds := strings.Split(lower_dom, ".")
+			hs := strings.Split(lower_host, ".")
 			if len(ds) != len(hs) {
 				continue
 			}
@@ -89,7 +96,7 @@ func (d *casCertDiscovery) domainMatchesHost(domainName string, tlsHost string) 
 				break
 			}
 		}
-		if dom == tlsHost {
+		if lower_dom == lower_host {
 			isMatch = true
 			break
 		}

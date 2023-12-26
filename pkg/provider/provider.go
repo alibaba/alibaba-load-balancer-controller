@@ -4,16 +4,17 @@ import (
 	"context"
 	"time"
 
+	"k8s.io/alibaba-load-balancer-controller/pkg/model/tag"
+
 	"k8s.io/alibaba-load-balancer-controller/pkg/controller/ingress/reconcile/tracking"
 
 	albmodel "k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
 	nlbmodel "k8s.io/alibaba-load-balancer-controller/pkg/model/nlb"
-	"k8s.io/alibaba-load-balancer-controller/pkg/model/tag"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/responses"
+
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/alb"
-	"github.com/aliyun/alibaba-cloud-sdk-go/services/cas"
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/sls"
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/vpc"
@@ -25,6 +26,7 @@ type Provider interface {
 	IMetaData
 	IInstance
 	IVPC
+	ILoadBalancer
 	IALB
 	INLB
 	ISLS
@@ -75,6 +77,9 @@ type NodeAttribute struct {
 }
 
 type IInstance interface {
+	ListInstances(ctx context.Context, ids []string) (map[string]*NodeAttribute, error)
+	GetInstancesByIP(ctx context.Context, ips []string) (*NodeAttribute, error)
+	// DescribeNetworkInterfaces query one or more elastic network interfaces (ENIs)
 	GetInstanceByIp(ip, region, vpc string) ([]ecs.Instance, error)
 	DescribeNetworkInterfaces(vpcId string, ips []string, ipVersionType model.AddressIPVersionType) (map[string]string, error)
 }
@@ -83,14 +88,62 @@ type IVPC interface {
 	DescribeVSwitches(ctx context.Context, vpcID string) ([]vpc.VSwitch, error)
 }
 
+type ILoadBalancer interface {
+	// LoadBalancer
+	FindLoadBalancer(ctx context.Context, mdl *model.LoadBalancer) error
+	CreateLoadBalancer(ctx context.Context, mdl *model.LoadBalancer) error
+	DescribeLoadBalancer(ctx context.Context, mdl *model.LoadBalancer) error
+	DeleteLoadBalancer(ctx context.Context, mdl *model.LoadBalancer) error
+	ModifyLoadBalancerInstanceSpec(ctx context.Context, lbId string, spec string) error
+	ModifyLoadBalancerInstanceChargeType(ctx context.Context, lbId string, instanceChargeType string, spec string) error
+	SetLoadBalancerDeleteProtection(ctx context.Context, lbId string, flag string) error
+	SetLoadBalancerName(ctx context.Context, lbId string, name string) error
+	ModifyLoadBalancerInternetSpec(ctx context.Context, lbId string, chargeType string, bandwidth int) error
+	SetLoadBalancerModificationProtection(ctx context.Context, lbId string, flag string) error
+
+	// Listener
+	DescribeLoadBalancerListeners(ctx context.Context, lbId string) ([]model.ListenerAttribute, error)
+	StartLoadBalancerListener(ctx context.Context, lbId string, port int) error
+	StopLoadBalancerListener(ctx context.Context, lbId string, port int) error
+	DeleteLoadBalancerListener(ctx context.Context, lbId string, port int) error
+	CreateLoadBalancerTCPListener(ctx context.Context, lbId string, listener model.ListenerAttribute) error
+	SetLoadBalancerTCPListenerAttribute(ctx context.Context, lbId string, listener model.ListenerAttribute) error
+	CreateLoadBalancerUDPListener(ctx context.Context, lbId string, listener model.ListenerAttribute) error
+	SetLoadBalancerUDPListenerAttribute(ctx context.Context, lbId string, listener model.ListenerAttribute) error
+	CreateLoadBalancerHTTPListener(ctx context.Context, lbId string, listener model.ListenerAttribute) error
+	SetLoadBalancerHTTPListenerAttribute(ctx context.Context, lbId string, listener model.ListenerAttribute) error
+	CreateLoadBalancerHTTPSListener(ctx context.Context, lbId string, listener model.ListenerAttribute) error
+	SetLoadBalancerHTTPSListenerAttribute(ctx context.Context, lbId string, listener model.ListenerAttribute) error
+
+	// VServerGroup
+	DescribeVServerGroups(ctx context.Context, lbId string) ([]model.VServerGroup, error)
+	CreateVServerGroup(ctx context.Context, vg *model.VServerGroup, lbId string) error
+	DescribeVServerGroupAttribute(ctx context.Context, vGroupId string) (model.VServerGroup, error)
+	DeleteVServerGroup(ctx context.Context, vGroupId string) error
+	AddVServerGroupBackendServers(ctx context.Context, vGroupId string, backends string) error
+	RemoveVServerGroupBackendServers(ctx context.Context, vGroupId string, backends string) error
+	SetVServerGroupAttribute(ctx context.Context, vGroupId string, backends string) error
+	ModifyVServerGroupBackendServers(ctx context.Context, vGroupId string, old string, new string) error
+
+	// Tag
+	TagCLBResource(ctx context.Context, resourceId string, tags []tag.Tag) error
+	ListCLBTagResources(ctx context.Context, lbId string) ([]tag.Tag, error)
+}
+
+// type IPrivateZone interface {
+// 	ListPVTZ(ctx context.Context) ([]*model.PvtzEndpoint, error)
+// 	SearchPVTZ(ctx context.Context, ep *model.PvtzEndpoint, exact bool) ([]*model.PvtzEndpoint, error)
+// 	UpdatePVTZ(ctx context.Context, ep *model.PvtzEndpoint) error
+// 	DeletePVTZ(ctx context.Context, ep *model.PvtzEndpoint) error
+// }
+
 type ISLS interface {
 	AnalyzeProductLog(request *sls.AnalyzeProductLogRequest) (response *sls.AnalyzeProductLogResponse, err error)
 	SLSDoAction(request requests.AcsRequest, response responses.AcsResponse) (err error)
 }
 
 type ICAS interface {
-	DescribeSSLCertificateList(ctx context.Context) ([]cas.CertificateInfo, error)
-	DescribeSSLCertificatePublicKeyDetail(ctx context.Context, request *cas.DescribeSSLCertificatePublicKeyDetailRequest) (*cas.DescribeSSLCertificatePublicKeyDetailResponse, error)
+	DescribeSSLCertificateList(ctx context.Context) ([]model.CertificateInfo, error)
 	CreateSSLCertificateWithName(ctx context.Context, certName, certificate, privateKey string) (string, error)
 	DeleteSSLCertificate(ctx context.Context, certId string) error
 }
@@ -103,7 +156,7 @@ type IALB interface {
 	CreateALB(ctx context.Context, resLB *albmodel.AlbLoadBalancer, trackingProvider tracking.TrackingProvider) (albmodel.LoadBalancerStatus, error)
 	ReuseALB(ctx context.Context, resLB *albmodel.AlbLoadBalancer, lbID string, trackingProvider tracking.TrackingProvider) (albmodel.LoadBalancerStatus, error)
 	UnReuseALB(ctx context.Context, lbID string, trackingProvider tracking.TrackingProvider) error
-	UpdateALB(ctx context.Context, resLB *albmodel.AlbLoadBalancer, sdkLB alb.LoadBalancer) (albmodel.LoadBalancerStatus, error)
+	UpdateALB(ctx context.Context, resLB *albmodel.AlbLoadBalancer, sdkLB alb.LoadBalancer, trackingProvider tracking.TrackingProvider) (albmodel.LoadBalancerStatus, error)
 	DeleteALB(ctx context.Context, lbID string) error
 	// ALB Listener
 	CreateALBListener(ctx context.Context, resLS *albmodel.Listener) (albmodel.ListenerStatus, error)
@@ -131,6 +184,7 @@ type IALB interface {
 	CreateALBServerGroup(ctx context.Context, resSGP *albmodel.ServerGroup, trackingProvider tracking.TrackingProvider) (albmodel.ServerGroupStatus, error)
 	UpdateALBServerGroup(ctx context.Context, resSGP *albmodel.ServerGroup, sdkSGP albmodel.ServerGroupWithTags) (albmodel.ServerGroupStatus, error)
 	DeleteALBServerGroup(ctx context.Context, serverGroupID string) error
+	SelectALBServerGroupsByID(ctx context.Context, serverGroupID string) (albmodel.ServerGroupWithTags, error)
 
 	// ALB Tags
 	ListALBServerGroupsWithTags(ctx context.Context, tagFilters map[string]string) ([]albmodel.ServerGroupWithTags, error)
@@ -143,8 +197,10 @@ type IALB interface {
 	CreateAcl(ctx context.Context, resAcl *albmodel.Acl) (albmodel.AclStatus, error)
 	UpdateAcl(ctx context.Context, listenerID string, resAndSDKAclPair albmodel.ResAndSDKAclPair) (albmodel.AclStatus, error)
 	DeleteAcl(ctx context.Context, listenerID, sdkAclID string) error
-	ListAcl(ctx context.Context, listener *albmodel.Listener, aclId string) ([]alb.Acl, error)
+	ListAcl(ctx context.Context, listener *albmodel.Listener, aclIds []string) ([]alb.Acl, error)
 	ListAclEntriesByID(traceID interface{}, sdkAclID string) ([]alb.AclEntry, error)
+	AssociateAclWithListener(ctx context.Context, traceID interface{}, resAcl *albmodel.Acl, aclIds []string) error
+	DisassociateAclWithListener(traceID interface{}, listenerID string, aclIds []string) error
 }
 
 type INLB interface {

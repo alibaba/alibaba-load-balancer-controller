@@ -28,7 +28,7 @@ ALB Ingress基于阿里云应用型负载均衡ALB（Application Load Balancer�
 
 
 
-# ALB Ingress配置指南
+# ALB Ingress 常用配置
 
 ​	前提条件
 
@@ -738,7 +738,7 @@ spec:
               number: 80
 ```
 
-# AlbConfig 配置指南
+# AlbConfig Common Configuration
 
 一个AlbConfig对应一个ALB实例，如果一个ALB实例配置多个转发规则，那么一个AlbConfig则对应多个Ingress，所以AlbConfig与Ingress是一对多的对应关系。
 
@@ -1074,3 +1074,253 @@ kubectl -n kube-system delete AlbConfig alb-demo
 ```
 
 `alb-demo`可以替换为您实际需要删除的AlbConfig。
+
+# ALB Ingress配置词典
+为便于您发现和解决各类配置的格式问题，本文提供一份ALB Ingress的全局配置词典供您使用。全局配置词典包括ALB Ingress支持的Annotation和ALB Ingress的AlbConfig字段两部分内容。
+
+## ALB Ingress支持的Annotation
+请根据需求将注解（Annotation）添加到ALB Ingress资源上，以配置与ALB相关的属性。
+
+### 健康检查
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/healthcheck-enabled`   | 是否开启后端服务器组健康检查   | `"true"` or `"false"`                                          | `"false"`|
+| `alb.ingress.kubernetes.io/healthcheck-path`      | 健康检查路径                   | string                                                         | `"/"`    |
+| `alb.ingress.kubernetes.io/healthcheck-protocol`  | 健康检查协议                   | `"HTTP"`, `"TCP"`                               | `"HTTP"` |
+| `alb.ingress.kubernetes.io/healthcheck-method`    | 健康检查方法                   | `"HEAD"`, `"POST"`, `"GET"`                                   | `"HEAD"` |
+| `alb.ingress.kubernetes.io/healthcheck-httpcode`  | 健康检查状态码                 | `"http_2xx"`, `"http_3xx"`, `"http_4xx"`, `"http_5xx"`| `"http_2xx"` |
+| `alb.ingress.kubernetes.io/healthcheck-timeout-seconds` | 健康检查超时时间，单位秒       | `1~300`                                                        | `5`       |
+| `alb.ingress.kubernetes.io/healthcheck-interval-seconds` | 健康检查周期                   | `1~50`                                                         | `2`       |
+| `alb.ingress.kubernetes.io/healthy-threshold-count`      | 健康检查成功多少次判定为成功   | `2~10`                                                         | `3`       |
+| `alb.ingress.kubernetes.io/unhealthy-threshold-count`    | 健康检查失败多少次判定为失败   | `2~10`                                                         | `3`       |
+| `alb.ingress.kubernetes.io/healthcheck-connect-port`     | 健康检查端口，`0`表示使用后端服务器的端口进行健康检查                    | `0~65535`                                                      | `0` |
+
+### 重定向
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/ssl-redirect`      | 是否将HTTP请求重定向到HTTPS| `"true"` or `"false"` | `"false"`|
+
+### 后端服务使用的协议
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/backend-protocol` | 后端服务器组协议   | `"http"`, `"https"`, `"grpc"` | `"http"`|
+
+### 重写
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/rewrite-target`          | 路径重写的地址                   | string                                | 无                          |
+
+### 监听
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/listen-ports`            | 关联监听端口与协议               | jsonObject                            | `'[{"HTTP": 80}]'` 或 `'[{"HTTPS": 443}]'` 或 `'[{"HTTP": 80},{"HTTPS": 443}]'` |
+
+### 优先级
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/order`                   | 转发规则的相对优先级             | `1~1000`                              | `10`                           |
+
+### 灰度
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/canary`                  | 是否启用canary灰度               | `"true"` or `"false"`                 | `"false"`                      |
+| `alb.ingress.kubernetes.io/canary-by-header`        | 启用灰度时命中的请求标头         | string                                | 无                            |
+| `alb.ingress.kubernetes.io/canary-by-header-value`  | 启用灰度时命中的请求标头对应的标头值 | string                            | 无                            |
+| `alb.ingress.kubernetes.io/canary-by-cookie`        | 启用灰度时的cookie标记           | string                                | 无                        |
+
+### 会话保持
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/sticky-session`          | 是否开启后端服务器组会话保持     | `"true"` or `"false"`         | `"false"`|
+| `alb.ingress.kubernetes.io/sticky-session-type`     | 开启会话保持的类型               | `"Insert"` or `"Server"`      | `"Insert"`|
+| `alb.ingress.kubernetes.io/cookie-timeout`          | 会话保持超时时间，单位秒         | `1~86400`                     | `1000`   |
+
+### 负载均衡
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/backend-scheduler`              | 后端服务器组负载均衡算法                   | `"wrr"`, `"wlc"`, `"sch"`, `"uch"`          | `"wrr"` |
+| `alb.ingress.kubernetes.io/backend-scheduler-uch-value`    | 负载均衡算法为uch时的辅助参数               | string                                          | 无     |
+
+### 跨域
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/enable-cors`                | 是否启用跨域配置                      | `"true"` or `"false"`                                                                           | `"false"`                                                                                              |
+| `alb.ingress.kubernetes.io/cors-allow-origin`          | 允许跨域的源                          | string                                                                                          | `"*"`                                                                                                  |
+| `alb.ingress.kubernetes.io/cors-expose-headers`        | 允许暴露的header列表                  | stringArray                                                                                     | 无                                                                                                    |
+| `alb.ingress.kubernetes.io/cors-allow-methods`         | 允许跨域的请求方法                    |  以下选项选择一项或多项：`["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"]`                  | `"GET, PUT, POST, DELETE, PATCH, OPTIONS"`                                                             |
+| `alb.ingress.kubernetes.io/cors-allow-credentials`     | 跨域是否允许携带凭证信息              | `"true"` or `"false"`                                                                           | `"true"`                                                                                               |
+| `alb.ingress.kubernetes.io/cors-max-age`               | 预检请求在浏览器最大的缓存时间        | `-1~172800`                                                                                     | `172800`                                                                                               |
+| `alb.ingress.kubernetes.io/cors-allow-headers`         | 允许跨域的header列表                  | stringArray                                                                                     | `"DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization"` |
+
+### 自定义转发
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/actions.{svcName}`          | 自定义转发动作                        | json                                                                                            | 无                                                                                                    |
+| `alb.ingress.kubernetes.io/conditions.{svcName}`       | 自定义转发条件                        | json                                                                                            | 无                                                                                                   |
+| `alb.ingress.kubernetes.io/rule-direction.{svcName}`   | 自定义转发方向                        | `"Request"` or `"Response"`                                                                      | `"Request"`                                                                                            |
+
+### 其他
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/backend-keepalive`          | 是否启用后端长链接                    | `"true"` or `"false"`                                                                           | `"false"`                                                                                              |
+| `alb.ingress.kubernetes.io/traffic-limit-qps`          | QPS限速配置                           | `1~100000`                                                                                      | 无                                                                                                    |
+| `alb.ingress.kubernetes.io/use-regex`                  | 允许Path字段使用正则，仅在Prefix类型下生效 | `"true"` or `"false"`                                                                           | `"false"`                                                                                              |
+
+## ALB Ingress的AlbConfig字段
+AlbConfig是用来描述ALB实例及监听的自定义资源CRD，关于字段的详细描述，请参见下文。
+
+### Albconfig
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `apiVersion` | APIVersion 定义了该对象的版本化模式。                | `"alibabacloud.com/v1"`                                         |                     无                            |
+| `kind`      | Kind表示该对象所代表的 REST 资源。                     | `"AlbConfig"`                                                   |                           无                        |
+| `metadata`  | 标准对象的 metadata。关于metadata的更多信息，请参见[metadata](https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata)。        | [ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#objectmeta-v1-meta)                                                    |    无   |
+| `spec`      | 用来描述alb实例属性和监听属性的参数列表。              | [AlbConfigSpec](#AlbConfigSpec)                                                 |                               无                    |
+| `status`    | 在调和成功后，会将实例状态写入status中，表示实例当前状态。 | [AlbConfigStatus](#AlbConfigStatus)                                                     |                    无                               |
+
+### AlbConfigSpec
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `config`   | ALB实例属性    | [LoadBalancerSpec](#LoadBalancerSpec) | 无    |
+| `listeners`| 实例下的监听属性 | [[]ListenerSpec](#ListenerSpec)  | 无    |
+
+### LoadBalancerSpec 
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `id`                        | ALB实例ID，填写代表启用复用模式     | `string`                           | `""`                                |
+| `name`                      | ALB实例名                         | `string`                           | `k8s-{namespace}-{name}-{hashCode}` |
+| `addressAllocatedMode`      | 实例的地址模式                     | `"Dynamic"` or `"Fixed"`           | `"Dynamic"`                         |
+| `addressType`               | ALB的IPv4网段地址类型             | `"Internet"` or `"Intranet"`       | `"Internet"`                        |
+| `ipv6AddressType`           | ALB的IPv6网段地址类型             | `"Internet"` or `"Intranet"`       | `"Intranet"`                        |
+| `addressIpVersion`          | 协议版本                          | `"IPv4"` or `"DualStack"`          | `"IPv4"`                            |
+| `resourceGroupId`           | 实例所属的资源组id                | string                           | 默认资源组                          |
+| `edition`                   | 实例功能版本                      | `"Standard"` or `"StandardWithWaf"`| `"Standard"`                        |
+| `deletionProtectionEnabled` | 保留字段，目前不可调整，强制保留   | `*bool`                            | `null`                              |
+| `forceOverride`             | 复用模式下强制覆盖实例属性         | `*bool`                            | `false`                             |
+| `listenerForceOverride`     | 复用模式下强制覆盖监听属性         | `*bool`                            | `null`                              |
+| `zoneMappings`              | 可用区和EIP配置                    | [[]ZoneMapping](#ZoneMapping)                  |               无                      |
+| `accessLogConfig`           | 日志收集                          | [AccessLogConfig](#AccessLogConfig)                  |                无                     |
+| `billingConfig`             | 计费方式                          | [BillingConfig](#BillingConfig)                   |                     无                |
+| `modificationProtectionConfig`| 配置修改保护                    | [ModificationProtectionConfig](#ModificationProtectionConfig)     |                无                     |
+| `tags`                      | 实例标签                          | [[]Tag](#Tag)                          |                    无                 |
+
+### ZoneMapping 
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `vSwitchId`   | 必填<br>虚拟交换机的id             | `string`  | `""`   |
+| `zoneId`      | 自动装填<br>虚拟交换机的可用区         | `string`  | `""`   | 
+| `allocationId`| 弹性公网EIP的ID           | `string`  | `""`   |
+| `eipType`     | 保留字段                   | `string`  | `""`   |
+
+### AccessLogConfig
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `logStore`  | SLS日志库的名称    | string | `""`   |
+| `logProject`| SLS日志项目的名称  | string | `""`   |
+
+### BillingConfig 
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `internetBandwidth`  | 保留字段            | int    | `0`        |
+| `internetChargeType` | 保留字段            | string | `""`       |
+| `payType`            | 计费方式            | string | `"PostPay"`|
+| `bandWidthPackageId` | 绑定共享带宽包ID，绑定后不支持解绑    | string | `""`       |
+
+### ModificationProtectionConfig 
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `reason` | 保留字段      | `string` | `""`          |
+| `status` | 保留字段      | `string` | `""`          |
+
+### Tag 
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `key` | 标签key     | string | `""`          |
+| `value` | 标签value | string | `""`          |
+
+
+### ListenerSpec 
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `gzipEnabled`      | 是否开启压缩        | `null` or `true` or `false` | `null`                                  |
+| `http2Enabled`     | 是否开启HTTP2协议   | `null` or `true` or `false` | `null`                                  |
+| `port`             | 必填<br>监听端口            | Int Or String         | `0`                                         |
+| `protocol`         | 必填<br>监听协议            | `"HTTP"` or `"HTTPS"` or `"QUIC"` | `""`                              |
+| `securityPolicyId` | TLS安全策略的ID       | string              | `""`                                         |
+| `idleTimeout`      | 空闲链接超时时间<br>取值为0，表示使用默认的空闲超时值    | `int`                 | `60`                                        |
+| `loadBalancerId`   | 保留字段            | string              | `""`                                         |
+| `description`      | 监听名              | string              | `ingress-auto-listener-{port}`              |
+| `caEnabled`        | 保留字段            | bool                | `false`                                      |
+| `requestTimeout`   | 请求超时时间        | int                | `60`                                         |
+| `quicConfig`       | Quic监听配置        | [QuicConfig](#QuicConfig)          |                                               |
+| `defaultActions`   | 保留字段            | `[]Action`            | `null`                                       |
+| `caCertificates`   | 保留字段            | [Certificate](#Certificate)         | `null`                                       |
+| `certificates`     | 监听服务器证书      |[Certificate](#Certificate)           | `null`                                       |
+| `xForwardedForConfig` | XForward字段配置信息 | [XForwardedForConfig](#XForwardedForConfig ) |              无                               |
+| `logConfig`        | 保留字段            | `LogConfig`           |                     无                          |
+| `aclConfig`        | 访问控制            | [AclConfig](#)           |                    无                           |
+
+
+
+### QuicConfig 
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `quicUpgradeEnabled`| 是否开启Quic 升级  | bool   | `false`       |
+| `quicListenerId`    | Quic 的关联监听    | string | `""`          |
+
+### Certificate
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `IsDefault`     | 指示证书是否为默认证书 <br> 一个服务或系统只能指示一个证书为默认证书      | bool   | `false`       |
+| `CertificateId` | 证书CertIdentifier的ID| string | `""`          |
+
+### XForwardedForConfig 
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `XForwardedForClientCertSubjectDNAlias`         | 自定义头名称，只有当`XForwardedForClientCertSubjectDNEnabled`的值为`true`时，此值才会生效                     | string   | `""`          |
+| `XForwardedForClientCertSubjectDNEnabled`       | 是否通过`X-Forwarded-Clientcert-subjectdn`头字段获取访问负载均衡实例客户端证书的所有者信息                 | bool     | `false`       |
+| `XForwardedForProtoEnabled`                     | 是否通过`X-Forwarded-Proto`头字段获取负载均衡实例的监听协议                                                | bool     | `false`       |
+| `XForwardedForClientCertIssuerDNEnabled`        | 是否通过`X-Forwarded-Clientcert-issuerdn`头字段获取访问负载均衡实例客户端证书的发行者信息                | bool     | `false`       |
+| `XForwardedForSLBIdEnabled`                     | 是否通过`X-Forwarded-For-SLB-ID`头字段获取负载均衡实例ID                                                                     | bool     | `false`       |
+| `XForwardedForClientSrcPortEnabled`             | 是否通过`X-Forwarded-Client-Port`头字段获取访问负载均衡实例客户端的端口                                       | bool     | `false`       |
+| `XForwardedForClientCertFingerprintEnabled`     | 是否通过`X-Forwarded-Clientcert-fingerprint`头字段获取访问负载均衡实例客户端证书的指纹取值                   | bool     | `false`       |
+| `XForwardedForEnabled`                          | 是否通过`X-Forwarded-For`头字段获取来访者真实IP                                                         | bool     | `false`       |
+| `XForwardedForSLBPortEnabled`                   | 是否通过`X-Forwarded-Port`头字段获取负载均衡实例的监听端口                                                   | bool     | `false`       |
+| `XForwardedForClientCertClientVerifyAlias`      | 自定义头名称，只有当`XForwardedForClientCertClientVerifyEnabled`的值为`true`的时候，该值才会生效；否则该值不会生效 | string   | `""`          |
+| `XForwardedForClientCertIssuerDNAlias`          | 自定义头名称，只有当`XForwardedForClientCertIssuerDNEnabled`的值为`true`的时候，此值才会生效                     | string   | `""`          |
+| `XForwardedForClientCertFingerprintAlias`       | 自定义头名称，只有当`XForwardedForClientCertFingerprintEnabled`的值为`true`时生效                               | string   | `""`          |
+| `XForwardedForClientCertClientVerifyEnabled`    | 是否通过`X-Forwarded-Clientcert-clientverify`头字段获取对访问负载均衡实例客户端证书的校验结果                 | bool     | `false`       |
+
+
+### AclConfig 
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `aclName`   | AclEntry模式下关联的ACL策略名  | string    |     无          |
+| `aclType`   | 策略类型，黑白名单             | `""` or `Black` or `White` | `""`  |
+| `aclEntries`| 直接写访问策略条目的           | []string  | `null`          |
+| `aclIds`    | 关联已经存在的策略ID           | []string  | `null`          |
+
+### AlbConfigStatus
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `loadBalancer` | 负载均衡状态实例      | [LoadBalancerStatus](#LoadBalancerStatus) |       无        |
+
+### LoadBalancerStatus 
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `dnsname`   | ALB实例DNS地址    | string           |        无        |
+| `id`        | ALB实例ID         | string           |      无          |
+| `listeners` | ALB监听属性       | [[]ListenerStatus](#ListenerStatus) |         无       |
+
+
+### ListenerStatus 
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `portAndProtocol` | 监听与协议   | string              | `80/HTTP`     |
+| `certificates`    | 关联证书     | [[]AppliedCertificate](#AppliedCertificate) |      无         |
+
+### AppliedCertificate
+|**注解项（Annotation）**|**说明**|**取值**|**默认值**|
+| :------------ | :------------ | :------------ | :------------ |
+| `certificateId` | 证书的标识符（certIdentifier） | string  | `xxxx-cn-hangzhou`  |
+| `isDefault`     | 是否为默认证书      | bool    | `true`              |

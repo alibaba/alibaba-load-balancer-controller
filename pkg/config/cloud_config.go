@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/ghodss/yaml"
-	"io/ioutil"
+	"k8s.io/alibaba-load-balancer-controller/pkg/util"
 	"k8s.io/klog/v2"
 )
 
@@ -44,11 +46,18 @@ type CloudConfig struct {
 }
 
 func (cc *CloudConfig) LoadCloudCFG() error {
-	content, err := ioutil.ReadFile(ControllerCFG.CloudConfigPath)
+	content, err := os.ReadFile(ControllerCFG.CloudConfigPath)
 	if err != nil {
 		return fmt.Errorf("read cloud config error: %s ", err.Error())
 	}
 	return yaml.Unmarshal(content, CloudCFG)
+}
+
+func (cc *CloudConfig) GetKubernetesClusterTag() string {
+	if cc.Global.KubernetesClusterTag == "" {
+		return util.ClusterTagKey
+	}
+	return cc.Global.KubernetesClusterTag
 }
 
 func (cc *CloudConfig) PrintInfo() {

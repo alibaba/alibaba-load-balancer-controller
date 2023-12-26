@@ -8,13 +8,12 @@ import (
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/controller/helper"
 
-	"k8s.io/alibaba-load-balancer-controller/pkg/util"
-
-	"k8s.io/alibaba-load-balancer-controller/pkg/controller/helper/k8s"
-	svcctrl "k8s.io/alibaba-load-balancer-controller/pkg/controller/helper/service"
 	"k8s.io/alibaba-load-balancer-controller/pkg/controller/ingress/reconcile/store"
-
+	"k8s.io/alibaba-load-balancer-controller/pkg/controller/service/reconcile/annotation"
+	"k8s.io/alibaba-load-balancer-controller/pkg/controller/service/reconcile/backend"
+	svcCtx "k8s.io/alibaba-load-balancer-controller/pkg/controller/service/reconcile/context"
 	pkgModel "k8s.io/alibaba-load-balancer-controller/pkg/model"
+	"k8s.io/alibaba-load-balancer-controller/pkg/util"
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
 	prvd "k8s.io/alibaba-load-balancer-controller/pkg/provider"
@@ -133,10 +132,10 @@ func (r *defaultEndpointResolver) resolvePodEndpoints(ctx context.Context, svc *
 				return nil, false, err
 			}
 
-			if !k8s.IsPodHasReadinessGate(pod) {
+			if !helper.IsPodHasReadinessGate(pod) {
 				continue
 			}
-			if !k8s.IsPodContainersReady(pod) {
+			if !helper.IsPodContainersReady(pod) {
 				containsPotentialReadyEndpoints = true
 				continue
 			}
@@ -182,13 +181,13 @@ func (r *defaultEndpointResolver) ResolveLocalEndpoints(ctx context.Context, svc
 
 	svcNodePort := svcPort.NodePort
 
-	reqCtx := &svcctrl.RequestContext{
+	reqCtx := &svcCtx.RequestContext{
 		Ctx:     ctx,
 		Service: svc,
-		Anno:    &svcctrl.AnnotationRequest{Service: svc},
+		Anno:    &annotation.AnnotationRequest{Service: svc},
 		Log:     r.logger,
 	}
-	nodes, err := svcctrl.GetNodes(reqCtx, r.k8sClient)
+	nodes, err := backend.GetNodes(reqCtx, r.k8sClient)
 	if err != nil {
 		return nil, containsPotentialReadyEndpoints, err
 	}
@@ -247,13 +246,13 @@ func (r *defaultEndpointResolver) ResolveClusterEndpoints(ctx context.Context, s
 	}
 
 	svcNodePort := svcPort.NodePort
-	reqCtx := &svcctrl.RequestContext{
+	reqCtx := &svcCtx.RequestContext{
 		Ctx:     ctx,
 		Service: svc,
-		Anno:    &svcctrl.AnnotationRequest{Service: svc},
+		Anno:    &annotation.AnnotationRequest{Service: svc},
 		Log:     r.logger,
 	}
-	nodes, err := svcctrl.GetNodes(reqCtx, r.k8sClient)
+	nodes, err := backend.GetNodes(reqCtx, r.k8sClient)
 	if err != nil {
 		return nil, containsPotentialReadyEndpoints, err
 	}

@@ -49,3 +49,17 @@ type ResAndSDKListenerRulePair struct {
 	ResLR *ListenerRule
 	SdkLR *albsdk.Rule
 }
+
+type ResAndSDKListenerRulePairArray []ResAndSDKListenerRulePair
+
+func (r ResAndSDKListenerRulePairArray) Len() int {
+	return len(r)
+}
+
+func (r ResAndSDKListenerRulePairArray) Swap(i, j int) {
+	r[i], r[j] = r[j], r[i]
+}
+
+func (r ResAndSDKListenerRulePairArray) Less(i, j int) bool {
+	return r[i].SdkLR.Priority < r[j].SdkLR.Priority
+}

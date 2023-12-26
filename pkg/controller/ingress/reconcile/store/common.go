@@ -43,10 +43,9 @@ type Ingress struct {
 // IsValid returns true if the given Ingress specify the ingress.class
 // annotation or IngressClassName resource for Kubernetes >= v1.18
 func (s *k8sStore) IsValid(ing *networking.Ingress) bool {
-	// 1. with annotation or IngressClass
-	ingress, ok := ing.GetAnnotations()[IngressKey]
-	if !ok && ing.Spec.IngressClassName != nil {
-		ingress = *ing.Spec.IngressClassName
+	// 1. try find IngressClass
+	if ing.Spec.IngressClassName != nil {
+		ingress := *ing.Spec.IngressClassName
 		ingressClass, exist, err := s.listers.IngressClass.GetByKey(ingress)
 		if err != nil {
 			klog.Errorf("IngressClass: %s GetByKey by endpoint failed: %s", ingress, err.Error())
@@ -60,6 +59,12 @@ func (s *k8sStore) IsValid(ing *networking.Ingress) bool {
 		if ic.Spec.Controller == ALBIngressController {
 			return true
 		}
+		return false
+	}
+	// 2. try use annotation
+	ingress, ok := ing.GetAnnotations()[IngressKey]
+	if !ok {
+		return false
 	}
 	if ingress == IngressClassName {
 		return true
@@ -77,6 +82,23 @@ func (s *k8sStore) IsValid(ing *networking.Ingress) bool {
 		if ic.Spec.Controller == ALBIngressController {
 			return true
 		}
+	}
+	return false
+}
+
+func (s *k8sStore) IsIngressClassUpdate(oldIng *networking.Ingress, curIng *networking.Ingress) bool {
+	// 1. old ingress with annotation or IngressClass
+	oldIc, ok := oldIng.GetAnnotations()[IngressKey]
+	if !ok && oldIng.Spec.IngressClassName != nil {
+		oldIc = *oldIng.Spec.IngressClassName
+	}
+	// 2. new ingress with annotation or IngressClass
+	newIc, ok := curIng.GetAnnotations()[IngressKey]
+	if !ok && curIng.Spec.IngressClassName != nil {
+		newIc = *curIng.Spec.IngressClassName
+	}
+	if oldIc != newIc {
+		return true
 	}
 	return false
 }

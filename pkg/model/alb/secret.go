@@ -57,6 +57,10 @@ func (sc *SecretCertificate) SetDefault() {
 	sc.Spec.IsDefault = true
 }
 
+func (sc *SecretCertificate) UnsetDefault() {
+	sc.Spec.IsDefault = false
+}
+
 func (sc *SecretCertificate) GetIsDefault() bool {
 	return sc.Spec.IsDefault
 }
@@ -73,6 +77,10 @@ type FixedCertificate struct {
 
 func (f *FixedCertificate) SetDefault() {
 	f.IsDefault = true
+}
+
+func (f *FixedCertificate) UnsetDefault() {
+	f.IsDefault = false
 }
 
 func (f *FixedCertificate) GetIsDefault() bool {

@@ -17,20 +17,24 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 )
 
-func NewListenerApplier(albProvider prvd.Provider, stack core.Manager, logger logr.Logger, commonReuse bool) *listenerApplier {
+func NewListenerApplier(albProvider prvd.Provider, stack core.Manager, logger logr.Logger, commonReuse bool, errRes core.ErrResult, listenerCommonReuse bool) *listenerApplier {
 	return &listenerApplier{
-		albProvider: albProvider,
-		stack:       stack,
-		logger:      logger,
-		commonReuse: commonReuse,
+		albProvider:         albProvider,
+		stack:               stack,
+		logger:              logger,
+		commonReuse:         commonReuse,
+		errRes:              errRes,
+		listenerCommonReuse: listenerCommonReuse,
 	}
 }
 
 type listenerApplier struct {
-	albProvider prvd.Provider
-	stack       core.Manager
-	logger      logr.Logger
-	commonReuse bool
+	albProvider         prvd.Provider
+	stack               core.Manager
+	logger              logr.Logger
+	commonReuse         bool
+	errRes              core.ErrResult
+	listenerCommonReuse bool
 }
 
 func (s *listenerApplier) Apply(ctx context.Context) error {
@@ -75,7 +79,6 @@ func (s *listenerApplier) applyListenersOnLB(ctx context.Context, lbID string, r
 	}
 
 	traceID := ctx.Value(util.TraceID)
-
 	sdkLSs, err := s.findSDKListenersOnLB(ctx, lbID)
 	if err != nil {
 		return err
@@ -99,38 +102,25 @@ func (s *listenerApplier) applyListenersOnLB(ctx context.Context, lbID string, r
 	}
 
 	var (
-		errDelete error
-		wgDelete  sync.WaitGroup
-	)
-	for _, sdkLS := range unmatchedSDKLSs {
-		wgDelete.Add(1)
-		go func(sdkLS albsdk.Listener) {
-			util.RandomSleepFunc(util.ConcurrentMaxSleepMillisecondTime)
-
-			defer wgDelete.Done()
-			if err := s.albProvider.DeleteALBListener(ctx, sdkLS.ListenerId); errDelete == nil && err != nil {
-				errDelete = err
-			}
-		}(sdkLS)
-	}
-	wgDelete.Wait()
-	if errDelete != nil {
-		return errDelete
-	}
-
-	var (
-		errCreate error
-		wgCreate  sync.WaitGroup
+		errCreate    error
+		wgCreate     sync.WaitGroup
+		chSynthesize = make(chan struct{}, util.ListenerConcurrentNum)
 	)
 	for _, resLS := range unmatchedResLSs {
+		chSynthesize <- struct{}{}
 		wgCreate.Add(1)
 		go func(resLS *albmodel.Listener) {
 			util.RandomSleepFunc(util.ConcurrentMaxSleepMillisecondTime)
 
-			defer wgCreate.Done()
+			defer func() {
+				wgCreate.Done()
+				<-chSynthesize
+			}()
 			lsStatus, err := s.albProvider.CreateALBListener(ctx, resLS)
 			if errCreate == nil && err != nil {
 				errCreate = err
+				s.errRes.AddErrMsgsWithListenerPort(resLS.Spec.ListenerPort, errCreate)
+				s.logger.V(util.SynLogLevel).Error(errCreate, "CreateALBListener AddErrMsg")
 			}
 			resLS.SetStatus(lsStatus)
 		}(resLS)
@@ -140,7 +130,7 @@ func (s *listenerApplier) applyListenersOnLB(ctx context.Context, lbID string, r
 		if strings.Contains(errCreate.Error(), "ResourceAlreadyExist.Listener") {
 			return fmt.Errorf("listener already in use, please set forceOverride=true and reconcile")
 		}
-		return errCreate
+		//return errCreate
 	}
 
 	var (
@@ -148,23 +138,50 @@ func (s *listenerApplier) applyListenersOnLB(ctx context.Context, lbID string, r
 		wgUpdate  sync.WaitGroup
 	)
 	for _, resAndSDKLS := range matchedResAndSDKLSs {
+		chSynthesize <- struct{}{}
 		wgUpdate.Add(1)
+		resLS := resAndSDKLS.resLS
+		sdkLS := resAndSDKLS.sdkLS
 		go func(resLs *albmodel.Listener, sdkLs *albsdk.Listener) {
 			util.RandomSleepFunc(util.ConcurrentMaxSleepMillisecondTime)
 
-			defer wgUpdate.Done()
+			defer func() {
+				wgUpdate.Done()
+				<-chSynthesize
+			}()
 			lsStatus, err := s.albProvider.UpdateALBListener(ctx, resLs, sdkLs)
 			if errUpdate == nil && err != nil {
 				errUpdate = err
+				s.errRes.AddErrMsgsWithListenerPort(resLS.Spec.ListenerPort, errUpdate)
+				s.logger.V(util.SynLogLevel).Error(errUpdate, "UpdateALBListener AddErrMsg")
 			}
 			resLs.SetStatus(lsStatus)
-		}(resAndSDKLS.resLS, resAndSDKLS.sdkLS)
+		}(resLS, sdkLS)
 	}
 	wgUpdate.Wait()
-	if errUpdate != nil {
-		return errUpdate
-	}
+	var (
+		errDelete error
+		wgDelete  sync.WaitGroup
+	)
+	for _, sdkLS := range unmatchedSDKLSs {
+		chSynthesize <- struct{}{}
+		wgDelete.Add(1)
+		go func(sdkLS albsdk.Listener) {
+			util.RandomSleepFunc(util.ConcurrentMaxSleepMillisecondTime)
 
+			defer func() {
+				wgDelete.Done()
+				<-chSynthesize
+			}()
+			if err := s.albProvider.DeleteALBListener(ctx, sdkLS.ListenerId); errDelete == nil && err != nil {
+				errDelete = err
+			}
+		}(sdkLS)
+	}
+	wgDelete.Wait()
+	if errDelete != nil {
+		return errDelete
+	}
 	return nil
 }
 
@@ -174,6 +191,9 @@ func (s *listenerApplier) findSDKListenersOnLB(ctx context.Context, lbID string)
 		return nil, err
 	}
 	if !s.commonReuse {
+		return listeners, nil
+	}
+	if !s.listenerCommonReuse {
 		return listeners, nil
 	}
 	filteredListeners := make([]albsdk.Listener, 0)

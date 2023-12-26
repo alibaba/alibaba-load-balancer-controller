@@ -63,7 +63,7 @@ func (*Ingress) WaitCreateIngress(f *framework.Framework, ing *networkingv1.Ingr
 			dnsName = lb.Ingress[0].Hostname
 		}
 		klog.Info("Expect ingress.Status.loadBalance.Ingress.Hostname != nil")
-		gomega.Expect(dnsName).NotTo(gomega.BeEmpty(), printEventsWhenError(f))
+		gomega.Expect(dnsName).NotTo(gomega.BeEmpty(), PrintEventsWhenError(f))
 	} else {
 		klog.Info("Expect ingress can not create successful ingN=", ingN, ", result=", err)
 		gomega.Expect(err).To(gomega.BeNil())
@@ -73,7 +73,7 @@ func (*Ingress) WaitCreateIngress(f *framework.Framework, ing *networkingv1.Ingr
 			dnsName = lb.Ingress[0].Hostname
 		}
 		klog.Info("Expect ingress.Status.loadBalance.Ingress.Hostname == nil")
-		gomega.Expect(dnsName).To(gomega.BeEmpty(), printEventsWhenError(f))
+		gomega.Expect(dnsName).To(gomega.BeEmpty(), PrintEventsWhenError(f))
 	}
 }
 

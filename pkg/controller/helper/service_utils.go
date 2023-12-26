@@ -58,7 +58,7 @@ func GetServiceTrafficPolicy(svc *v1.Service) (TrafficPolicy, error) {
 		return ENITrafficPolicy, nil
 	}
 	if IsClusterIPService(svc) {
-		return "", fmt.Errorf("cluster service type just support eni mode for alb ingress")
+		return "", fmt.Errorf("cluster service type just support eni mode for alb ingress: Servcie=%s/%s", svc.Namespace, svc.Name)
 	}
 	if IsLocalModeService(svc) {
 		return LocalTrafficPolicy, nil
@@ -101,9 +101,7 @@ func NeedCLB(service *v1.Service) bool {
 }
 
 func NeedNLB(service *v1.Service) bool {
-	return service.Spec.Type == v1.ServiceTypeLoadBalancer &&
-		service.Spec.LoadBalancerClass != nil &&
-		*service.Spec.LoadBalancerClass == NLBClass
+	return service.Spec.Type == v1.ServiceTypeLoadBalancer && service.Spec.LoadBalancerClass != nil && *service.Spec.LoadBalancerClass == NLBClass
 }
 
 func GetServiceHash(svc *v1.Service) string {

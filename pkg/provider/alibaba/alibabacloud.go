@@ -9,6 +9,7 @@ import (
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/cas"
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/ecs"
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/nlb"
+	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/slb"
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/sls"
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/vpc"
 	"k8s.io/alibaba-load-balancer-controller/pkg/util/metric"
@@ -18,7 +19,7 @@ import (
 func NewAlibabaCloud() prvd.Provider {
 	mgr, err := base.NewClientMgr()
 	if err != nil {
-		panic(fmt.Sprintf("initiaize alibaba cloud client auth: %s", err.Error()))
+		panic(fmt.Sprintf("initialize alibaba cloud client auth: %s", err.Error()))
 	}
 	if mgr == nil {
 		panic("auth should not be nil")
@@ -30,9 +31,10 @@ func NewAlibabaCloud() prvd.Provider {
 
 	metric.RegisterPrometheus()
 
-	return &AlibabaCloud{
+	return AlibabaCloud{
 		IMetaData:   mgr.Meta,
 		ECSProvider: ecs.NewECSProvider(mgr),
+		SLBProvider: slb.NewLBProvider(mgr),
 		VPCProvider: vpc.NewVPCProvider(mgr),
 		ALBProvider: alb.NewALBProvider(mgr),
 		NLBProvider: nlb.NewNLBProvider(mgr),
@@ -46,6 +48,7 @@ var _ prvd.Provider = AlibabaCloud{}
 type AlibabaCloud struct {
 	*ecs.ECSProvider
 	*vpc.VPCProvider
+	*slb.SLBProvider
 	*alb.ALBProvider
 	*nlb.NLBProvider
 	*sls.SLSProvider

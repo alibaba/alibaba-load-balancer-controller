@@ -162,7 +162,7 @@ func (n *AnnotationRequest) GetDefaultTags() []tag.Tag {
 			Value: n.GetDefaultLoadBalancerName(),
 		},
 		{
-			Key:   util.ClusterNameTagKey,
+			Key:   util.ClusterTagKey,
 			Value: base.CLUSTER_ID,
 		},
 	}

@@ -47,7 +47,7 @@ func (p MockALB) UnReuseALB(ctx context.Context, lbID string, trackingProvider t
 	return nil
 }
 
-func (p MockALB) UpdateALB(ctx context.Context, resLB *albmodel.AlbLoadBalancer, sdkLB albsdk.LoadBalancer) (albmodel.LoadBalancerStatus, error) {
+func (p MockALB) UpdateALB(ctx context.Context, resLB *albmodel.AlbLoadBalancer, sdkLB albsdk.LoadBalancer, trackingProvider tracking.TrackingProvider) (albmodel.LoadBalancerStatus, error) {
 	return albmodel.LoadBalancerStatus{}, nil
 }
 func (p MockALB) DeleteALB(ctx context.Context, lbID string) error {
@@ -118,6 +118,9 @@ func (p MockALB) UpdateALBServerGroup(ctx context.Context, resSGP *albmodel.Serv
 func (p MockALB) DeleteALBServerGroup(ctx context.Context, serverGroupID string) error {
 	return nil
 }
+func (p MockALB) SelectALBServerGroupsByID(ctx context.Context, serverGroupID string) (albmodel.ServerGroupWithTags, error) {
+	return albmodel.ServerGroupWithTags{}, nil
+}
 
 // ALB Tags
 func (p MockALB) ListALBServerGroupsWithTags(ctx context.Context, tagFilters map[string]string) ([]albmodel.ServerGroupWithTags, error) {
@@ -136,10 +139,17 @@ func (p MockALB) UpdateAcl(ctx context.Context, listenerID string, resAndSDKAclP
 func (p MockALB) DeleteAcl(ctx context.Context, listenerID, sdkAclID string) error {
 	return nil
 }
-func (p MockALB) ListAcl(ctx context.Context, listener *albmodel.Listener, aclId string) ([]albsdk.Acl, error) {
+func (p MockALB) ListAcl(ctx context.Context, listener *albmodel.Listener, aclId []string) ([]albsdk.Acl, error) {
 	return nil, nil
 }
 
 func (p MockALB) ListAclEntriesByID(traceID interface{}, sdkAclID string) ([]albsdk.AclEntry, error) {
 	return nil, nil
+}
+
+func (p MockALB) AssociateAclWithListener(ctx context.Context, traceID interface{}, resAcl *albmodel.Acl, aclIds []string) error {
+	return nil
+}
+func (p MockALB) DisassociateAclWithListener(traceID interface{}, listenerID string, aclIds []string) error {
+	return nil
 }

@@ -1,4 +1,4 @@
-FROM golang:1.17.6
+FROM golang:1.20
 
 WORKDIR /alibaba-load-balancer-controller
 

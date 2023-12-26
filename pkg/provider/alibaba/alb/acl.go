@@ -31,18 +31,20 @@ func (m *ALBProvider) CreateAcl(ctx context.Context, resAcl *alb.Acl) (alb.AclSt
 	// 添加cidr实体
 	err = m.addEntriesToAcl(traceID, resAcl.Spec.AclEntries, resAcl, aclResp.AclId)
 	if err != nil {
+		m.deleteAcl(traceID, aclResp.AclId)
 		return alb.AclStatus{}, err
 	}
 	err = m.waitAclStatus(traceID, aclResp.AclId)
 	if err != nil {
+		m.deleteAcl(traceID, aclResp.AclId)
 		return alb.AclStatus{}, err
 	}
 	// 关联Acl和Listener
-	err = m.associateAclWithListener(ctx, traceID, resAcl, aclResp.AclId)
+	err = m.AssociateAclWithListener(ctx, traceID, resAcl, []string{aclResp.AclId})
 	if err != nil {
+		m.deleteAcl(traceID, aclResp.AclId)
 		return alb.AclStatus{}, err
 	}
-
 	return buildResAclStatus(aclResp.AclId), nil
 }
 func (m *ALBProvider) UpdateAcl(ctx context.Context, listenerID string, resAndSdkAclPair alb.ResAndSDKAclPair) (alb.AclStatus, error) {
@@ -97,8 +99,9 @@ func (m *ALBProvider) UpdateAcl(ctx context.Context, listenerID string, resAndSd
 		return alb.AclStatus{}, err
 	}
 	if !isAssociated {
-		err = m.associateAclWithListener(ctx, traceID, resAcl, sdkAcl.AclId)
+		err = m.AssociateAclWithListener(ctx, traceID, resAcl, []string{sdkAcl.AclId})
 		if err != nil {
+			m.deleteAcl(traceID, sdkAcl.AclId)
 			return alb.AclStatus{}, err
 		}
 	}
@@ -110,7 +113,7 @@ func (m *ALBProvider) DeleteAcl(ctx context.Context, listenerID, sdkAclID string
 	traceID := ctx.Value(util.TraceID)
 
 	// 解除关联listener
-	if err := m.disassociateAclWithListener(traceID, listenerID, sdkAclID); err != nil {
+	if err := m.DisassociateAclWithListener(traceID, listenerID, []string{sdkAclID}); err != nil {
 		return err
 	}
 
@@ -121,7 +124,7 @@ func (m *ALBProvider) DeleteAcl(ctx context.Context, listenerID, sdkAclID string
 
 	return nil
 }
-func (m *ALBProvider) ListAcl(ctx context.Context, listener *alb.Listener, aclId string) ([]albsdk.Acl, error) {
+func (m *ALBProvider) ListAcl(ctx context.Context, listener *alb.Listener, aclIds []string) ([]albsdk.Acl, error) {
 	traceID := ctx.Value(util.TraceID)
 
 	if listener == nil {
@@ -136,7 +139,7 @@ func (m *ALBProvider) ListAcl(ctx context.Context, listener *alb.Listener, aclId
 	// TODO 根据listener查询Acl列表
 	lsID := listener.ListenerID()
 	listAclsReq := albsdk.CreateListAclsRequest()
-	listAclsReq.AclIds = &[]string{aclId}
+	listAclsReq.AclIds = &aclIds
 
 	for {
 		listAclsReq.NextToken = nextToken
@@ -144,7 +147,7 @@ func (m *ALBProvider) ListAcl(ctx context.Context, listener *alb.Listener, aclId
 		startTime := time.Now()
 		m.logger.V(util.MgrLogLevel).Info("listing acls",
 			"listenerID", lsID,
-			"aclId", aclId,
+			"aclIds", aclIds,
 			"traceID", traceID,
 			"startTime", startTime,
 			util.Action, util.ListAcl)
@@ -154,7 +157,7 @@ func (m *ALBProvider) ListAcl(ctx context.Context, listener *alb.Listener, aclId
 		}
 		m.logger.V(util.MgrLogLevel).Info("listed acls",
 			"listenerID", lsID,
-			"aclId", aclId,
+			"aclIds", aclIds,
 			"traceID", traceID,
 			"requestID", listAclResp.RequestId,
 			"elapsedTime", time.Since(startTime).Milliseconds(),
@@ -206,16 +209,16 @@ func (m *ALBProvider) deleteAcl(traceID interface{}, aclID string) error {
 	return nil
 }
 
-func (m *ALBProvider) disassociateAclWithListener(traceID interface{}, listenerID, aclID string) error {
+func (m *ALBProvider) DisassociateAclWithListener(traceID interface{}, listenerID string, aclIds []string) error {
 	disassociateAclWithListenerReq := albsdk.CreateDissociateAclsFromListenerRequest()
 	disassociateAclWithListenerReq.ListenerId = listenerID
-	disassociateAclWithListenerReq.AclIds = &[]string{aclID}
+	disassociateAclWithListenerReq.AclIds = &aclIds
 	if err := util.RetryImmediateOnError(m.waitAclExistencePollInterval, m.waitAclExistenceTimeout, isQuotaExceededError, func() error {
 		startTime := time.Now()
 		m.logger.V(util.MgrLogLevel).Info("disassociate acl with listener",
 			"traceID", traceID,
 			"listenerID", listenerID,
-			"aclID", aclID,
+			"aclIds", aclIds,
 			"startTime", startTime,
 			util.Action, util.DissociateAclsFromListener)
 		disassociateAclWithListenerResp, err := m.auth.ALB.DissociateAclsFromListener(disassociateAclWithListenerReq)
@@ -223,7 +226,7 @@ func (m *ALBProvider) disassociateAclWithListener(traceID interface{}, listenerI
 			m.logger.V(util.MgrLogLevel).Info("disassociate acl with listener",
 				"traceID", traceID,
 				"listenerID", listenerID,
-				"aclID", aclID,
+				"aclIds", aclIds,
 				"requestID", disassociateAclWithListenerResp.RequestId,
 				"elapsedTime", time.Since(startTime).Milliseconds(),
 				"error", err.Error(),
@@ -233,7 +236,7 @@ func (m *ALBProvider) disassociateAclWithListener(traceID interface{}, listenerI
 		m.logger.V(util.MgrLogLevel).Info("disassociate acl with listener",
 			"traceID", traceID,
 			"listenerID", listenerID,
-			"aclID", aclID,
+			"aclIds", aclIds,
 			"requestID", disassociateAclWithListenerResp.RequestId,
 			"elapsedTime", time.Since(startTime).Milliseconds(),
 			util.Action, util.DissociateAclsFromListener)
@@ -296,6 +299,24 @@ func (m *ALBProvider) isAssociateAclWithListener(ctx context.Context, traceID in
 }
 
 func (m *ALBProvider) removeEntriesFromAcl(traceID interface{}, entries []albsdk.AclEntry, resAcl *alb.Acl, aclID string) error {
+	cnt := util.BatchRemoveEntriesToAclMaxNum
+	total := len(entries)
+
+	for total > cnt {
+		if err := m.removeEntriesFromAclSingle(traceID, entries[0:cnt], resAcl, aclID); err != nil {
+			return err
+		}
+		entries = entries[cnt:]
+		total = len(entries)
+	}
+	if total <= 0 {
+		return nil
+	}
+
+	return m.removeEntriesFromAclSingle(traceID, entries, resAcl, aclID)
+}
+
+func (m *ALBProvider) removeEntriesFromAclSingle(traceID interface{}, entries []albsdk.AclEntry, resAcl *alb.Acl, aclID string) error {
 	removeEntriesFromAclReq := albsdk.CreateRemoveEntriesFromAclRequest()
 	removeEntriesFromAclReq.AclId = aclID
 	removeAclEntries := make([]string, 0)
@@ -363,44 +384,60 @@ func (m *ALBProvider) matchResAndSDKAclEntries(resAclEntries []alb.AclEntry, sdk
 func (m *ALBProvider) listAclEntries(traceID interface{}, sdkAclID string) ([]albsdk.AclEntry, error) {
 	createListAclEntriesReq := albsdk.CreateListAclEntriesRequest()
 	createListAclEntriesReq.AclId = sdkAclID
-	var createListAclEntriesResp *albsdk.ListAclEntriesResponse
-	if err := util.RetryImmediateOnError(m.waitAclExistencePollInterval, m.waitAclExistenceTimeout, isQuotaExceededError, func() error {
-		startTime := time.Now()
-		m.logger.V(util.MgrLogLevel).Info("list entries",
-			"aclID", sdkAclID,
-			"traceID", traceID,
-			"startTime", startTime,
-			util.Action, util.ListAclEntries)
-		var err error
-		createListAclEntriesResp, err = m.auth.ALB.ListAclEntries(createListAclEntriesReq)
-		if err != nil {
+
+	var aclList []albsdk.AclEntry
+	var nextToken string
+
+	for {
+		createListAclEntriesReq.NextToken = nextToken
+		var createListAclEntriesResp *albsdk.ListAclEntriesResponse
+
+		if err := util.RetryImmediateOnError(m.waitAclExistencePollInterval, m.waitAclExistenceTimeout, isQuotaExceededError, func() error {
+			startTime := time.Now()
 			m.logger.V(util.MgrLogLevel).Info("list entries",
 				"aclID", sdkAclID,
 				"traceID", traceID,
-				"error", err.Error(),
+				"startTime", startTime,
 				util.Action, util.ListAclEntries)
-			return err
+			var err error
+			createListAclEntriesResp, err = m.auth.ALB.ListAclEntries(createListAclEntriesReq)
+			if err != nil {
+				m.logger.V(util.MgrLogLevel).Info("list entries",
+					"aclID", sdkAclID,
+					"traceID", traceID,
+					"error", err.Error(),
+					util.Action, util.ListAclEntries)
+				return err
+			}
+			m.logger.V(util.MgrLogLevel).Info("list entries",
+				"traceID", traceID,
+				"aclID", sdkAclID,
+				"listAclEntries", createListAclEntriesResp.AclEntries,
+				"requestID", createListAclEntriesResp.RequestId,
+				"elapsedTime", time.Since(startTime).Milliseconds(),
+				util.Action, util.ListAclEntries)
+			return nil
+		}); err != nil {
+			return []albsdk.AclEntry{}, errors.Wrap(err, "failed to list entries")
 		}
-		m.logger.V(util.MgrLogLevel).Info("list entries",
-			"traceID", traceID,
-			"aclID", sdkAclID,
-			"listAclEntries", createListAclEntriesResp.AclEntries,
-			"requestID", createListAclEntriesResp.RequestId,
-			"elapsedTime", time.Since(startTime).Milliseconds(),
-			util.Action, util.ListAclEntries)
-		return nil
-	}); err != nil {
-		return []albsdk.AclEntry{}, errors.Wrap(err, "failed to list entries")
+		aclList = append(aclList, createListAclEntriesResp.AclEntries...)
+
+		if createListAclEntriesResp.NextToken == "" {
+			break
+		} else {
+			nextToken = createListAclEntriesResp.NextToken
+		}
 	}
-	return createListAclEntriesResp.AclEntries, nil
+
+	return aclList, nil
 }
 
-func (m *ALBProvider) associateAclWithListener(ctx context.Context, traceID interface{}, resAcl *alb.Acl, aclID string) error {
+func (m *ALBProvider) AssociateAclWithListener(ctx context.Context, traceID interface{}, resAcl *alb.Acl, aclIds []string) error {
 	associateAclsWithListenerReq := albsdk.CreateAssociateAclsWithListenerRequest()
 	listenerID, err := resAcl.Spec.ListenerID.Resolve(ctx)
 	associateAclsWithListenerReq.ListenerId = listenerID
 	associateAclsWithListenerReq.AclType = resAcl.Spec.AclType
-	associateAclsWithListenerReq.AclIds = &[]string{aclID}
+	associateAclsWithListenerReq.AclIds = &aclIds
 	if err != nil {
 		return err
 	}
@@ -410,7 +447,7 @@ func (m *ALBProvider) associateAclWithListener(ctx context.Context, traceID inte
 			"stackID", resAcl.Stack().StackID(),
 			"resourceID", resAcl.ID(),
 			"listenerID", listenerID,
-			"aclID", aclID,
+			"aclIds", aclIds,
 			"aclType", associateAclsWithListenerReq.AclType,
 			"traceID", traceID,
 			"startTime", startTime,
@@ -421,7 +458,7 @@ func (m *ALBProvider) associateAclWithListener(ctx context.Context, traceID inte
 				"stackID", resAcl.Stack().StackID(),
 				"resourceID", resAcl.ID(),
 				"listenerID", listenerID,
-				"aclID", aclID,
+				"aclIds", aclIds,
 				"aclType", associateAclsWithListenerReq.AclType,
 				"traceID", traceID,
 				"error", err.Error(),
@@ -433,7 +470,7 @@ func (m *ALBProvider) associateAclWithListener(ctx context.Context, traceID inte
 			"resourceID", resAcl.ID(),
 			"traceID", traceID,
 			"listenerID", listenerID,
-			"aclID", aclID,
+			"aclIds", aclIds,
 			"aclType", associateAclsWithListenerReq.AclType,
 			"requestID", associateAclsWithListenerResp.RequestId,
 			"elapsedTime", time.Since(startTime).Milliseconds(),
@@ -446,6 +483,30 @@ func (m *ALBProvider) associateAclWithListener(ctx context.Context, traceID inte
 }
 
 func (m *ALBProvider) addEntriesToAcl(traceID interface{}, resAclEntries []alb.AclEntry, resAcl *alb.Acl, aclID string) error {
+	if len(resAclEntries) == 0 {
+		return nil
+	}
+	cnt := util.BatchAddEntriesToAclMaxNum
+	total := len(resAclEntries)
+
+	for total > cnt {
+		if err := m.addEntriesToAclSingle(traceID, resAclEntries[0:cnt], resAcl, aclID); err != nil {
+			return err
+		}
+		if err := m.waitAclStatus(traceID, aclID); err != nil {
+			return err
+		}
+		resAclEntries = resAclEntries[cnt:]
+		total = len(resAclEntries)
+	}
+	if total <= 0 {
+		return nil
+	}
+
+	return m.addEntriesToAclSingle(traceID, resAclEntries, resAcl, aclID)
+}
+
+func (m *ALBProvider) addEntriesToAclSingle(traceID interface{}, resAclEntries []alb.AclEntry, resAcl *alb.Acl, aclID string) error {
 	if len(resAclEntries) == 0 {
 		return nil
 	}
@@ -488,7 +549,6 @@ func (m *ALBProvider) addEntriesToAcl(traceID interface{}, resAclEntries []alb.A
 	}); err != nil {
 		return errors.Wrap(err, "failed to add entries acl")
 	}
-
 	return nil
 }
 

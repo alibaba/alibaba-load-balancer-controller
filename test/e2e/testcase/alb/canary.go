@@ -1,7 +1,7 @@
 package alb
 
 import (
-	"github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/v2"
 	"k8s.io/alibaba-load-balancer-controller/test/e2e/framework"
 	"k8s.io/alibaba-load-balancer-controller/test/e2e/testcase/alb/common"
 )
@@ -9,7 +9,6 @@ import (
 func RunCanaryTestCases(f *framework.Framework) {
 	ingress := common.Ingress{}
 	service := common.Service{}
-	ginkgo.By("create service")
 	ginkgo.BeforeEach(func() {
 		service.CreateDefaultService(f)
 	})

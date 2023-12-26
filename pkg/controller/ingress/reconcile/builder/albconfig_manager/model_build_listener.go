@@ -15,7 +15,7 @@ func (t *defaultModelBuildTask) buildListener(ctx context.Context, lbID core.Str
 	if err != nil {
 		return nil, err
 	}
-	lsResID := fmt.Sprintf("%v", lsSpecDst.ListenerPort)
+	lsResID := fmt.Sprintf("%v-%v", lsSpecDst.ListenerPort, lsSpecDst.ListenerProtocol)
 	ls := alb.NewListener(t.stack, lsResID, lsSpecDst)
 	return ls, nil
 }
@@ -80,6 +80,8 @@ func (t *defaultModelBuildTask) buildListenerSpec(ctx context.Context, lbID core
 	}
 	if apiLs.GzipEnabled == nil {
 		modelLs.GzipEnabled = t.defaultListenerGzipEnabled
+	} else {
+		modelLs.GzipEnabled = *apiLs.GzipEnabled
 	}
 
 	if apiLs.Protocol == string(ProtocolHTTPS) {
@@ -92,6 +94,12 @@ func (t *defaultModelBuildTask) buildListenerSpec(ctx context.Context, lbID core
 		}
 		if apiLs.Http2Enabled == nil {
 			modelLs.Http2Enabled = t.defaultListenerHttp2Enabled
+		}
+	}
+	if apiLs.Protocol == string(ProtocolQUIC) {
+		modelLs.Certificates = transCertificatesFromAPIToSDK(apiLs.Certificates)
+		if len(apiLs.CaCertificates) != 0 {
+			modelLs.CaCertificates = transCertificatesFromAPIToSDK(apiLs.CaCertificates)
 		}
 	}
 

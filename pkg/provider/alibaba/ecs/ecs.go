@@ -1,15 +1,19 @@
 package ecs
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
-	"k8s.io/alibaba-load-balancer-controller/pkg/model"
 	"k8s.io/klog/v2"
 
+	ctrlCfg "k8s.io/alibaba-load-balancer-controller/pkg/config"
+	"k8s.io/alibaba-load-balancer-controller/pkg/model"
 	prvd "k8s.io/alibaba-load-balancer-controller/pkg/provider"
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/base"
 	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/util"
+	v1 "k8s.io/api/core/v1"
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
 	"github.com/aliyun/alibaba-cloud-sdk-go/services/ecs"
@@ -53,6 +57,113 @@ func (e *ECSProvider) GetInstanceByIp(ip, region, vpc string) ([]ecs.Instance, e
 			return nil, err
 		}
 		klog.V(5).Infof("RequestId: %s, API: %s, ips: %s", resp.RequestId, "DescribeInstances", string(ips))
+		ecsInstances = append(ecsInstances, resp.Instances.Instance...)
+		if resp.NextToken == "" {
+			break
+		}
+
+		req.NextToken = resp.NextToken
+	}
+
+	return ecsInstances, nil
+}
+
+func (e *ECSProvider) ListInstances(ctx context.Context, ids []string) (map[string]*prvd.NodeAttribute, error) {
+	nodeRegionMap := make(map[string][]string)
+	for _, id := range ids {
+		regionID, nodeID, err := util.NodeFromProviderID(id)
+		if err != nil {
+			return nil, err
+		}
+		nodeRegionMap[regionID] = append(nodeRegionMap[regionID], nodeID)
+	}
+
+	var insList []ecs.Instance
+	for region, nodes := range nodeRegionMap {
+		ins, err := e.getInstances(nodes, region)
+		if err != nil {
+			return nil, err
+		}
+		insList = append(insList, ins...)
+	}
+	mins := make(map[string]*prvd.NodeAttribute)
+	for _, id := range ids {
+		mins[id] = nil
+		for _, n := range insList {
+			if strings.Contains(id, n.InstanceId) {
+				mins[id] = &prvd.NodeAttribute{
+					InstanceID:   n.InstanceId,
+					InstanceType: n.InstanceType,
+					Addresses:    findAddress(&n),
+					Zone:         n.ZoneId,
+					Region:       n.RegionId,
+				}
+				break
+			}
+		}
+	}
+	return mins, nil
+}
+
+func (e *ECSProvider) GetInstancesByIP(ctx context.Context, ips []string) (*prvd.NodeAttribute, error) {
+	req := ecs.CreateDescribeInstancesRequest()
+	req.InstanceNetworkType = "vpc"
+	bips, err := json.Marshal(ips)
+	if err != nil {
+		return nil, fmt.Errorf("node ips %v marshal error: %s", ips, err.Error())
+	}
+	req.PrivateIpAddresses = string(bips)
+	req.VpcId, err = e.auth.Meta.VpcID()
+	if err != nil {
+		return nil, fmt.Errorf("get vpc id error: %s", err.Error())
+	}
+	req.Tag = &[]ecs.DescribeInstancesTag{
+		{
+			Key: ctrlCfg.CloudCFG.GetKubernetesClusterTag(),
+		},
+	}
+	resp, err := e.auth.ECS.DescribeInstances(req)
+	if err != nil {
+		klog.V(5).Infof("RequestId: %s, API: %s, ips: %s", resp.RequestId, "DescribeInstances", req.PrivateIpAddresses)
+		return nil, fmt.Errorf("describe instances by ip %s error: %s", ips, err.Error())
+	}
+
+	if len(resp.Instances.Instance) != 1 {
+		klog.V(5).Infof("RequestId: %s, API: %s, ips: %s", resp.RequestId, "DescribeInstances", req.PrivateIpAddresses)
+		return nil, fmt.Errorf("find none or multiple instances by ip %s", ips)
+	}
+
+	ins := resp.Instances.Instance[0]
+
+	return &prvd.NodeAttribute{
+		InstanceID:   ins.InstanceId,
+		InstanceType: ins.InstanceType,
+		Addresses:    findAddress(&ins),
+		Zone:         ins.ZoneId,
+		Region:       e.auth.Region,
+	}, nil
+}
+
+func (e *ECSProvider) getInstances(ids []string, region string) ([]ecs.Instance, error) {
+	bids, err := json.Marshal(ids)
+	if err != nil {
+		return nil, fmt.Errorf("get instances error: %s", err.Error())
+	}
+	req := ecs.CreateDescribeInstancesRequest()
+	req.RegionId = region
+	req.InstanceIds = string(bids)
+	req.NextToken = ""
+	req.MaxResults = requests.NewInteger(50)
+
+	var ecsInstances []ecs.Instance
+	for {
+		resp, err := e.auth.ECS.DescribeInstances(req)
+		if err != nil {
+			klog.Errorf("calling DescribeInstances: region=%s, "+
+				"instancename=%s, message=[%s].", req.RegionId, req.InstanceName, err.Error())
+			return nil, err
+		}
+		klog.V(5).Infof("RequestId: %s, API: %s, ids: %s", resp.RequestId, "DescribeInstances", string(bids))
 		ecsInstances = append(ecsInstances, resp.Instances.Instance...)
 		if resp.NextToken == "" {
 			break
@@ -123,4 +234,43 @@ func (e *ECSProvider) DescribeNetworkInterfaces(vpcId string, ips []string, ipVe
 
 	}
 	return result, nil
+}
+
+func findAddress(instance *ecs.Instance) []v1.NodeAddress {
+	var addrs []v1.NodeAddress
+
+	if len(instance.PublicIpAddress.IpAddress) > 0 {
+		for _, ipaddr := range instance.PublicIpAddress.IpAddress {
+			addrs = append(addrs, v1.NodeAddress{Type: v1.NodeExternalIP, Address: ipaddr})
+		}
+	}
+
+	if instance.EipAddress.IpAddress != "" {
+		addrs = append(addrs, v1.NodeAddress{Type: v1.NodeExternalIP, Address: instance.EipAddress.IpAddress})
+	}
+
+	if len(instance.InnerIpAddress.IpAddress) > 0 {
+		for _, ipaddr := range instance.InnerIpAddress.IpAddress {
+			addrs = append(addrs, v1.NodeAddress{Type: v1.NodeInternalIP, Address: ipaddr})
+		}
+	}
+
+	if len(instance.VpcAttributes.PrivateIpAddress.IpAddress) > 0 {
+		for _, ipaddr := range instance.VpcAttributes.PrivateIpAddress.IpAddress {
+			addrs = append(addrs, v1.NodeAddress{Type: v1.NodeInternalIP, Address: ipaddr})
+		}
+	}
+
+	return addrs
+}
+
+func (e *ECSProvider) DeleteInstance(ctx context.Context, id string) error {
+	req := ecs.CreateDeleteInstanceRequest()
+	req.InstanceId = id
+	_, err := e.auth.ECS.DeleteInstance(req)
+	if err != nil {
+		klog.Errorf("calling DeleteInstance: region=%s, instanceID=%s, message=[%s].", req.RegionId, id, err.Error())
+		return err
+	}
+	return nil
 }

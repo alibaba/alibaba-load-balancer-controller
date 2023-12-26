@@ -2,8 +2,6 @@ package albconfigmanager
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/util"
@@ -43,11 +41,6 @@ const (
 	DescribeVSwitches = "DescribeVSwitches"
 )
 
-const (
-	albLeastZoneCount   = 2
-	vSwitchLeastIPCount = 5
-)
-
 func (v *defaultVSwitchesResolver) discoveryALBZones(ctx context.Context) ([]albsdk.Zone, error) {
 	traceID := ctx.Value(util.TraceID)
 
@@ -79,9 +72,6 @@ func (v *defaultVSwitchesResolver) ResolveViaDiscovery(ctx context.Context) ([]v
 	if err != nil {
 		return nil, err
 	}
-	if len(albZones) < albLeastZoneCount {
-		return nil, errors.New("unable to discover at least two albZones for alb")
-	}
 
 	startTime := time.Now()
 	v.logger.Info("describing vSwitches",
@@ -112,10 +102,6 @@ func (v *defaultVSwitchesResolver) ResolveViaDiscovery(ctx context.Context) ([]v
 				break
 			}
 		}
-	}
-
-	if len(chosenVSwitches) < albLeastZoneCount {
-		return nil, fmt.Errorf("unable to discover at least two vSwitches from alb zones: %v", albZones)
 	}
 
 	return chosenVSwitches, nil
@@ -159,10 +145,6 @@ func (v *defaultVSwitchesResolver) ResolveViaIDSlice(ctx context.Context, vSwitc
 			}
 
 		}
-	}
-
-	if len(chosenVSwitches) < albLeastZoneCount {
-		return nil, fmt.Errorf("unable to discover at least two vSwitches: %v", vSwitchIDs)
 	}
 
 	return chosenVSwitches, nil

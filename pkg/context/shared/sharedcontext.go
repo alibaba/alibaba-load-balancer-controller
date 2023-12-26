@@ -2,7 +2,7 @@ package shared
 
 import (
 	"k8s.io/alibaba-load-balancer-controller/pkg/context/base"
-	"k8s.io/alibaba-load-balancer-controller/pkg/provider"
+	prvd "k8s.io/alibaba-load-balancer-controller/pkg/provider"
 )
 
 func NewSharedContext(

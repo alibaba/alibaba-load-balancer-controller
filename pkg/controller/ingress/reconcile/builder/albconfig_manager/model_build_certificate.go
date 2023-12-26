@@ -12,12 +12,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func (t *defaultModelBuildTask) buildSecretCertificate(ctx context.Context, port int32, ing networking.Ingress, secretName, clusterID string) (*alb.SecretCertificate, error) {
+func (t *defaultModelBuildTask) buildSecretCertificate(ctx context.Context, ing networking.Ingress, secretName, clusterID string, pp PortProtocol) (*alb.SecretCertificate, error) {
 	scSpecDst, err := t.buildSecretCertificateSpec(ctx, ing, secretName, clusterID)
 	if err != nil {
 		return nil, err
 	}
-	scResID := fmt.Sprintf("%d-%v", port, scSpecDst.CertName)
+	scResID := fmt.Sprintf("%v-%v-%v", pp.Port, pp.Protocol, scSpecDst.CertName)
 	if sc, exists := t.scByResID[scResID]; exists {
 		return sc, nil
 	}

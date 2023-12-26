@@ -81,11 +81,15 @@ func (s *albLoadBalancerApplier) Apply(ctx context.Context) error {
 		}
 	}
 	for _, resLB := range unmatchedResLBs {
-		lbStatus, err := s.CreateALB(ctx, resLB, s.trackingProvider)
-		if err != nil {
-			return err
+		if resLB.Status != nil && resLB.Status.LoadBalancerID != "" {
+			return errors.Errorf("ALB loadBalancer : %v has been deleted on the console , please delete related albconfig first", resLB.Status.LoadBalancerID)
+		} else {
+			lbStatus, err := s.CreateALB(ctx, resLB, s.trackingProvider)
+			if err != nil {
+				return err
+			}
+			resLB.SetStatus(lbStatus)
 		}
-		resLB.SetStatus(lbStatus)
 	}
 	for _, resAndSDKLB := range matchedResAndSDKLBs {
 		lbStatus, err := s.UpdateALB(ctx, resAndSDKLB.resLB, resAndSDKLB.sdkLB.LoadBalancer)
@@ -106,7 +110,7 @@ func (s *albLoadBalancerApplier) UpdateALB(ctx context.Context, resLB *albmodel.
 			DNSName:        sdkLB.DNSName,
 		}
 	} else {
-		albStatus, err = s.albProvider.UpdateALB(ctx, resLB, sdkLB)
+		albStatus, err = s.albProvider.UpdateALB(ctx, resLB, sdkLB, s.trackingProvider)
 	}
 	return albStatus, err
 }

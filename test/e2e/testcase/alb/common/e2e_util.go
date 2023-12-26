@@ -3,6 +3,7 @@ package common
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"k8s.io/alibaba-load-balancer-controller/test/e2e/framework"
@@ -20,7 +21,7 @@ type aEvent struct {
 	InvokeObject   v1.ObjectReference
 }
 
-func printEventsWhenError(f *framework.Framework) string {
+func PrintEventsWhenError(f *framework.Framework) string {
 	klog.Info("Looks like something went wrong~")
 	klog.Info("`kubectl -n e2e-test get events`")
 	results, err := f.Client.KubeClient.CoreV1().Events("e2e-test").List(context.TODO(), metav1.ListOptions{})
@@ -29,6 +30,12 @@ func printEventsWhenError(f *framework.Framework) string {
 	}
 	followEvts := make([]aEvent, 0)
 	for _, evt := range results.Items {
+		if evt.InvolvedObject.Kind != "Ingress" {
+			continue
+		}
+		if strings.HasPrefix("Successfully", evt.Message) || strings.HasPrefix("Scheduled", evt.Message) {
+			continue
+		}
 		followEvts = append(followEvts, aEvent{
 			FirstTimeStamp: evt.FirstTimestamp.Time,
 			LastTimeStamp:  evt.LastTimestamp.Time,
@@ -37,11 +44,9 @@ func printEventsWhenError(f *framework.Framework) string {
 			Type:           evt.Type,
 			InvokeObject:   evt.InvolvedObject,
 		})
-
 	}
 
 	eventByte, _ := json.MarshalIndent(followEvts, "", "  ")
 	eventString := string(eventByte)
-	klog.Infof("events=", eventString)
 	return eventString
 }

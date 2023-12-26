@@ -25,8 +25,13 @@ type ingressController struct {
 
 func (ingC ingressController) Start(ctx context.Context) error {
 	klog.Infof("ingressController start")
+	go ingC.recon.Start()
+	if _, err := ingC.recon.store.WaitCache(ingC.recon.stopCh); err != nil {
+		return err
+	}
 	return ingC.c.Start(ctx)
 }
+
 func Add(mgr manager.Manager, ctx *shared.SharedContext) error {
 	rateLimit := workqueue.NewMaxOfRateLimiter(
 		workqueue.NewItemExponentialFailureRateLimiter(5*time.Second, 300*time.Second),

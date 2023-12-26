@@ -22,14 +22,19 @@ func (t *defaultModelBuildTask) buildAcl(ctx context.Context, ls *alb.Listener, 
 		return nil
 	}
 
-	// 将Cidr字符串转为AclEntry
+	// cidr string to AclEntry
 	entries := make([]alb.AclEntry, 0)
 	for _, cidr := range lsSpec.AclConfig.AclEntries {
 		entries = append(entries, alb.AclEntry{Entry: cidr})
 	}
 
+	if len(entries) > 0 && len(lsSpec.AclConfig.AclIds) > 0 {
+		return fmt.Errorf("aclEntry and aclIds cannot use together")
+	}
+
 	aclName := lsSpec.AclConfig.AclName
-	if aclName == "" {
+	// auto aclName if aclEntry set
+	if aclName == "" && len(entries) > 0 {
 		aclName = "acl-" + lb.Spec.LoadBalancerName + "-" + lsSpec.Port.String()
 	}
 	aclSpec := &alb.AclSpec{
@@ -37,6 +42,7 @@ func (t *defaultModelBuildTask) buildAcl(ctx context.Context, ls *alb.Listener, 
 		AclName:    aclName,
 		AclType:    aclType,
 		AclEntries: entries,
+		AclIds:     lsSpec.AclConfig.AclIds,
 	}
 
 	aclResID := fmt.Sprintf("%v", lsSpec.Port.String())

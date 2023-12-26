@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/alibaba-load-balancer-controller/pkg/provider/alibaba/alb/future"
 	"k8s.io/alibaba-load-balancer-controller/pkg/util"
 
 	albsdk "github.com/aliyun/alibaba-cloud-sdk-go/services/alb"
@@ -19,61 +20,16 @@ var registerServersFunc = func(ctx context.Context, serverMgr *ALBProvider, sgpI
 	}
 
 	traceID := ctx.Value(util.TraceID)
+	future := future.NewAddServersToServerGroupFuture(future.NewFutureBase(util.AddALBServersToServerGroup,
+		traceID,
+		serverMgr.auth.ALB,
+		serverMgr.logger),
+		sgpID, servers)
 
-	addServerToSgpReq := albsdk.CreateAddServersToServerGroupRequest()
-	addServerToSgpReq.ServerGroupId = sgpID
-	addServerToSgpReq.Servers = &servers
-
-	startTime := time.Now()
-	serverMgr.logger.V(util.MgrLogLevel).Info("adding server to server group",
-		"serverGroupID", sgpID,
-		"servers", servers,
-		"traceID", traceID,
-		"startTime", startTime,
-		util.Action, util.AddALBServersToServerGroup)
-	addServerToSgpResp, err := serverMgr.auth.ALB.AddServersToServerGroup(addServerToSgpReq)
-	if err != nil {
-		return err
+	serverMgr.promise.Start(future)
+	if !future.Success {
+		return future.Err
 	}
-	serverMgr.logger.V(util.MgrLogLevel).Info("added server to server group",
-		"serverGroupID", sgpID,
-		"traceID", traceID,
-		"requestID", addServerToSgpResp.RequestId,
-		"elapsedTime", time.Since(startTime).Milliseconds(),
-		util.Action, util.AddALBServersToServerGroup)
-
-	if util.IsWaitServersAsynchronousComplete {
-		asynchronousStartTime := time.Now()
-		serverMgr.logger.V(util.MgrLogLevel).Info("adding server to server group asynchronous",
-			"serverGroupID", sgpID,
-			"servers", servers,
-			"traceID", traceID,
-			"startTime", asynchronousStartTime,
-			util.Action, util.AddALBServersToServerGroupAsynchronous)
-		for i := 0; i < util.AddALBServersToServerGroupWaitAvailableMaxRetryTimes; i++ {
-			time.Sleep(util.AddALBServersToServerGroupWaitAvailableRetryInterval)
-
-			isCompleted, err := isRegisterServersCompleted(ctx, serverMgr, sgpID, servers)
-			if err != nil {
-				serverMgr.logger.V(util.MgrLogLevel).Error(err, "failed to add server to server group asynchronous",
-					"serverGroupID", sgpID,
-					"servers", servers,
-					"traceID", traceID,
-					util.Action, util.AddALBServersToServerGroupAsynchronous)
-				return err
-			}
-			if isCompleted {
-				break
-			}
-		}
-		serverMgr.logger.V(util.MgrLogLevel).Info("added server to server group asynchronous",
-			"serverGroupID", sgpID,
-			"traceID", traceID,
-			"requestID", addServerToSgpResp.RequestId,
-			"elapsedTime", time.Since(asynchronousStartTime).Milliseconds(),
-			util.Action, util.AddALBServersToServerGroupAsynchronous)
-	}
-
 	return nil
 }
 
@@ -120,62 +76,16 @@ var deregisterServersFunc = func(ctx context.Context, serverMgr *ALBProvider, sg
 	}
 
 	traceID := ctx.Value(util.TraceID)
+	future := future.NewRemoveServersFromServerGroupFuture(future.NewFutureBase(util.RemoveALBServersFromServerGroup,
+		traceID,
+		serverMgr.auth.ALB,
+		serverMgr.logger),
+		sgpID, servers)
 
-	removeServerFromSgpReq := albsdk.CreateRemoveServersFromServerGroupRequest()
-	removeServerFromSgpReq.ServerGroupId = sgpID
-	removeServerFromSgpReq.Servers = &servers
-
-	startTime := time.Now()
-	serverMgr.logger.V(util.MgrLogLevel).Info("removing server from server group",
-		"serverGroupID", sgpID,
-		"traceID", traceID,
-		"servers", servers,
-		"startTime", startTime,
-		util.Action, util.RemoveALBServersFromServerGroup)
-	removeServerFromSgpResp, err := serverMgr.auth.ALB.RemoveServersFromServerGroup(removeServerFromSgpReq)
-	if err != nil {
-		return err
+	serverMgr.promise.Start(future)
+	if !future.Success {
+		return future.Err
 	}
-	serverMgr.logger.V(util.MgrLogLevel).Info("removed server from server group",
-		"serverGroupID", sgpID,
-		"traceID", traceID,
-		"requestID", removeServerFromSgpResp.RequestId,
-		"elapsedTime", time.Since(startTime).Milliseconds(),
-		util.Action, util.RemoveALBServersFromServerGroup)
-
-	if util.IsWaitServersAsynchronousComplete {
-		asynchronousStartTime := time.Now()
-		serverMgr.logger.V(util.MgrLogLevel).Info("removing server from server group asynchronous",
-			"serverGroupID", sgpID,
-			"traceID", traceID,
-			"servers", servers,
-			"startTime", startTime,
-			util.Action, util.RemoveALBServersFromServerGroupAsynchronous)
-		for i := 0; i < util.RemoveALBServersFromServerGroupMaxRetryTimes; i++ {
-			time.Sleep(util.RemoveALBServersFromServerGroupRetryInterval)
-
-			isCompleted, err := isDeregisterServersCompleted(ctx, serverMgr, sgpID, servers)
-			if err != nil {
-				serverMgr.logger.V(util.MgrLogLevel).Error(err, "failed to remove server from server group asynchronous",
-					"serverGroupID", sgpID,
-					"traceID", traceID,
-					"requestID", removeServerFromSgpResp.RequestId,
-					"elapsedTime", time.Since(asynchronousStartTime).Milliseconds(),
-					util.Action, util.RemoveALBServersFromServerGroupAsynchronous)
-				return err
-			}
-			if isCompleted {
-				break
-			}
-		}
-		serverMgr.logger.V(util.MgrLogLevel).Info("removed server from server group asynchronous",
-			"serverGroupID", sgpID,
-			"traceID", traceID,
-			"requestID", removeServerFromSgpResp.RequestId,
-			"elapsedTime", time.Since(asynchronousStartTime).Milliseconds(),
-			util.Action, util.RemoveALBServersFromServerGroupAsynchronous)
-	}
-
 	return nil
 }
 
@@ -327,36 +237,22 @@ func (m *ALBProvider) ListALBServers(ctx context.Context, serverGroupID string) 
 		servers   []albsdk.BackendServer
 	)
 
-	listSgpServersReq := albsdk.CreateListServerGroupServersRequest()
-	listSgpServersReq.ServerGroupId = serverGroupID
-
 	for {
-		listSgpServersReq.NextToken = nextToken
+		future := future.NewListServerGroupServersFuture(future.NewFutureBase(util.ListALBServerGroupServers,
+			traceID,
+			m.auth.ALB,
+			m.logger), serverGroupID, nextToken)
 
-		startTime := time.Now()
-		m.logger.V(util.MgrLogLevel).Info("listing servers",
-			"serverGroupID", serverGroupID,
-			"traceID", traceID,
-			"startTime", startTime,
-			util.Action, util.ListALBServerGroupServers)
-		listSgpServersResp, err := m.auth.ALB.ListServerGroupServers(listSgpServersReq)
-		if err != nil {
-			return nil, err
+		m.promise.Start(future)
+		if !future.Success {
+			return nil, future.Err
 		}
-		m.logger.V(util.MgrLogLevel).Info("listed servers",
-			"serverGroupID", serverGroupID,
-			"traceID", traceID,
-			"servers", listSgpServersResp.Servers,
-			"requestID", listSgpServersResp.RequestId,
-			"elapsedTime", time.Since(startTime).Milliseconds(),
-			util.Action, util.ListALBServerGroupServers)
+		servers = append(servers, future.Servers...)
 
-		servers = append(servers, listSgpServersResp.Servers...)
-
-		if listSgpServersResp.NextToken == "" {
+		if future.NextToken == "" {
 			break
 		} else {
-			nextToken = listSgpServersResp.NextToken
+			nextToken = future.NextToken
 		}
 	}
 
@@ -513,94 +409,6 @@ func isServerWeightValid(weight int) bool {
 		return false
 	}
 	return true
-}
-
-func isRegisterServersCompleted(ctx context.Context, serverMgr *ALBProvider, sgpID string, servers []albsdk.AddServersToServerGroupServers) (bool, error) {
-	sdkServers, err := serverMgr.ListALBServers(ctx, sgpID)
-	if err != nil {
-		return false, err
-	}
-
-	var isCompleted = true
-	for _, server := range servers {
-		var serverUID string
-		if len(server.ServerIp) == 0 {
-			serverUID = fmt.Sprintf("%v:%v", server.ServerId, server.Port)
-		} else {
-			serverUID = fmt.Sprintf("%v:%v:%v", server.ServerId, server.ServerIp, server.Port)
-		}
-
-		isExist := false
-		var backendServer albsdk.BackendServer
-		for _, sdkServer := range sdkServers {
-			var sdkServerUID string
-			if len(server.ServerIp) == 0 {
-				sdkServerUID = fmt.Sprintf("%v:%v", sdkServer.ServerId, sdkServer.Port)
-			} else {
-				sdkServerUID = fmt.Sprintf("%v:%v:%v", sdkServer.ServerId, sdkServer.ServerIp, sdkServer.Port)
-			}
-			if strings.EqualFold(serverUID, sdkServerUID) {
-				isExist = true
-				backendServer = sdkServer
-				break
-			}
-		}
-
-		if isExist && strings.EqualFold(backendServer.Status, util.ServerStatusAvailable) {
-			continue
-		}
-
-		isCompleted = false
-		break
-	}
-
-	if isCompleted {
-		return true, nil
-	}
-
-	return false, nil
-}
-
-func isDeregisterServersCompleted(ctx context.Context, serverMgr *ALBProvider, sgpID string, servers []albsdk.RemoveServersFromServerGroupServers) (bool, error) {
-	sdkServers, err := serverMgr.ListALBServers(ctx, sgpID)
-	if err != nil {
-		return false, err
-	}
-
-	var isCompleted = true
-	for _, server := range servers {
-		var serverUID string
-		if len(server.ServerIp) == 0 {
-			serverUID = fmt.Sprintf("%v:%v", server.ServerId, server.Port)
-		} else {
-			serverUID = fmt.Sprintf("%v:%v:%v", server.ServerId, server.ServerIp, server.Port)
-		}
-
-		isExist := false
-		for _, sdkServer := range sdkServers {
-			var sdkServerUID string
-			if len(server.ServerIp) == 0 {
-				sdkServerUID = fmt.Sprintf("%v:%v", sdkServer.ServerId, sdkServer.Port)
-			} else {
-				sdkServerUID = fmt.Sprintf("%v:%v:%v", sdkServer.ServerId, sdkServer.ServerIp, sdkServer.Port)
-			}
-			if strings.EqualFold(serverUID, sdkServerUID) {
-				isExist = true
-				break
-			}
-		}
-
-		if isExist {
-			isCompleted = false
-			break
-		}
-	}
-
-	if isCompleted {
-		return true, nil
-	}
-
-	return false, nil
 }
 
 func isRegisterServersForReplaceCompleted(sdkServers []albsdk.BackendServer, servers []albsdk.ReplaceServersInServerGroupAddedServers) (bool, error) {

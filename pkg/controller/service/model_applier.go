@@ -289,7 +289,7 @@ func isNLBReusable(service *v1.Service, tags []tag.Tag, dnsName string) (bool, s
 	for _, t := range tags {
 		// the tag of the apiserver slb is "ack.aliyun.com": "${clusterid}",
 		// so can not reuse slbs which have ack.aliyun.com tag key.
-		if t.Key == helper.TAGKEY || t.Key == util.ClusterNameTagKey {
+		if t.Key == helper.TAGKEY || t.Key == util.ClusterTagKey {
 			return false, "can not reuse loadbalancer created by kubernetes."
 		}
 	}

@@ -3,6 +3,7 @@ package applier
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/util"
 
@@ -70,24 +71,48 @@ func (m *defaultAlbConfigManagerApplier) Apply(ctx context.Context, stack core.M
 	if isReuseLb && len(resLBs) == 1 && resLBs[0].Spec.ForceOverride != nil && !*resLBs[0].Spec.ForceOverride {
 		commonReuse = true
 	}
-	// only loadbalaner apply if delete albconfig
-	if len(resLBs) == 0 {
-		applier := NewAlbLoadBalancerApplier(m.albProvider, m.trackingProvider, stack, m.logger, commonReuse)
-		return applier.Apply(ctx)
+	listenerCommonReuse := false
+	if isReuseLb && len(resLBs) == 1 && resLBs[0].Spec.ListenerForceOverride != nil && !*resLBs[0].Spec.ListenerForceOverride {
+		listenerCommonReuse = true
 	}
-
+	// loadbalaner and servergroup apply if delete albconfig
+	if len(resLBs) == 0 {
+		var err error
+		albApplier := NewAlbLoadBalancerApplier(m.albProvider, m.trackingProvider, stack, m.logger, commonReuse)
+		err = albApplier.Apply(ctx)
+		if err != nil {
+			return err
+		}
+		sgpApplier := NewServerGroupApplier(m.kubeClient, m.backendManager, m.albProvider, m.trackingProvider, stack, m.logger)
+		err = sgpApplier.Apply(ctx)
+		if err != nil {
+			return err
+		}
+		err = sgpApplier.PostApply(ctx)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	errRes := core.NewDefaultErrResult()
 	appliers := []ResourceApply{
 		NewSecretApplier(m.albProvider, stack, m.logger),
 		NewServerGroupApplier(m.kubeClient, m.backendManager, m.albProvider, m.trackingProvider, stack, m.logger),
 		NewAlbLoadBalancerApplier(m.albProvider, m.trackingProvider, stack, m.logger, commonReuse),
-		NewListenerApplier(m.albProvider, stack, m.logger, commonReuse),
-		NewAclApplier(m.albProvider, m.trackingProvider, stack, m.logger),
-		NewListenerRuleApplier(m.albProvider, stack, m.logger),
+		NewListenerApplier(m.albProvider, stack, m.logger, commonReuse, errRes, listenerCommonReuse),
+		NewAclApplier(m.albProvider, m.trackingProvider, stack, m.logger, errRes),
+		NewListenerRuleApplier(m.albProvider, stack, m.logger, errRes),
 	}
 
 	for _, applier := range appliers {
 		if err := applier.Apply(ctx); err != nil {
 			return err
+		}
+	}
+
+	for listenerPort, errInfo := range errRes.ErrResultMap {
+		for _, errMsg := range errInfo.ErrMsgs {
+			return fmt.Errorf("apply  failed %v %v %v %v", "listenerPort", strconv.Itoa(listenerPort), "errMsgs", errMsg.Error())
 		}
 	}
 

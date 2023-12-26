@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	svcctrl "k8s.io/alibaba-load-balancer-controller/pkg/controller/helper/service"
+	"k8s.io/alibaba-load-balancer-controller/pkg/controller/helper"
 
 	"k8s.io/alibaba-load-balancer-controller/pkg/controller/ingress/reconcile/backend"
 	"k8s.io/alibaba-load-balancer-controller/pkg/model/alb"
@@ -31,11 +31,12 @@ func (b defaultServiceManagerBuilder) Build(ctx context.Context, svcStackCtx *al
 	serverStack.ClusterID = svcStackCtx.ClusterID
 	serverStack.Namespace = svcStackCtx.ServiceNamespace
 	serverStack.Name = svcStackCtx.ServiceName
+	serverStack.IngressAlbConfigMap = svcStackCtx.IngressAlbConfigMap
 	port2ServerGroup := make(map[int32]*alb.ServerGroupWithIngress)
 	port2Backends := make(map[int32][]alb.BackendItem)
 	containsPotentialReadyEndpoints := false
 	if !svcStackCtx.IsServiceNotFound {
-		policy, err := svcctrl.GetServiceTrafficPolicy(svcStackCtx.Service)
+		policy, err := helper.GetServiceTrafficPolicy(svcStackCtx.Service)
 		if err != nil {
 			return nil, err
 		}

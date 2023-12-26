@@ -24,13 +24,13 @@ Alibaba Load Balancer Controller uses Go vendor to manage dependencies. If the d
 2. Compile the binary code.
 
    ```
-   go build -o bin/load-controller-manager cmd/manager/main.go
+   go build -o bin/load-balancer-controller cmd/manager/main.go
    ```
 
 3. Optional. If the on-premises machine and the cluster use different architectures, you can use cross-compiling of Go to build a cross-platform image.
 
    ```
-   GOOS=linux GOARCH=amd64 go build -o bin/load-controller-manager cmd/manager/main.go
+   GOOS=linux GOARCH=amd64 go build -o bin/load-balancer-controller cmd/manager/main.go
    ```
 
 4. Obtain a base image in advance.
@@ -49,10 +49,8 @@ Alibaba Load Balancer Controller uses Go vendor to manage dependencies. If the d
    #
 
    RUN apk add --no-cache --update ca-certificates
-
-   COPY bin/load-controller-manager /load-controller-manager
-
-   ENTRYPOINT  ["/load-controller-manager"]
+   COPY bin/load-balancer-controller /load-balancer-controller
+   ENTRYPOINT  ["/load-balancer-controller"]
    ```
 
 6. Run the following command in the root directory of the project.
@@ -76,291 +74,291 @@ When you deploy an image for Alibaba Load Balancer Controller, the standard Kube
 1. Alibaba Load Balancer Controller monitors cluster resources based on RBAC. You must create the following resources: ServiceAccount, ClusterRoleBinding, and ClusterRole.
 
    ```yaml
-   apiVersion: rbac.authorization.k8s.io/v1
-   kind: ClusterRole
-   metadata:
-     name: system:load-balancer-controller
-   rules:
-   - apiGroups:
-     - ""
-     resources:
-     - events
-     verbs:
-     - get
-     - list
-     - create
-     - patch
-     - update
-   - apiGroups:
-     - ""
-     resources:
-     - nodes
-     verbs:
-     - get
-     - list
-     - watch
-   - apiGroups:
-     - ""
-     resources:
-     - nodes/status
-     verbs:
-     - patch
-     - update
-   - apiGroups:
-     - ""
-     resources:
-     - services
-     - pods
-     verbs:
-     - get
-     - list
-     - watch
-     - update
-     - patch
-   - apiGroups:
-     - ""
-     resources:
-     - configmaps
-     verbs:
-     - get
-     - list
-     - watch
-     - update
-     - patch
-   - apiGroups:
-     - ""
-     resources:
-     - services/status
-     - pods/status
-     verbs:
-     - update
-     - patch
-   - apiGroups:
-     - ""
-     resources:
-     - serviceaccounts
-     verbs:
-     - create
-   - apiGroups:
-     - ""
-     resources:
-     - endpoints
-     verbs:
-     - get
-     - list
-     - watch
-     - create
-     - patch
-     - update
-   - apiGroups:
-     - coordination.k8s.io
-     resources:
-     - leases
-     verbs:
-     - get
-     - list
-     - update
-     - create
-   - apiGroups:
-     - apiextensions.k8s.io
-     resources:
-     - customresourcedefinitions
-     verbs:
-     - get
-     - update
-     - create
-     - delete
-   - apiGroups:
-     - networking.k8s.io
-     resources:
-     - ingresses
-     - ingressclasses
-     verbs:
-     - get
-     - list
-     - watch
-     - update
-     - create
-     - patch
-     - delete
-   - apiGroups:
-     - alibabacloud.com
-     resources:
-     - albconfigs
-     verbs:
-     - get
-     - list
-     - watch
-     - update
-     - create
-     - patch
-     - delete
-   - apiGroups:
-     - alibabacloud.com
-     resources:
-     - albconfigs/status
-     verbs:
-     - update
-     - patch
-   - apiGroups:
-     - networking.k8s.io
-     resources:
-     - ingresses/status
-     verbs:
-     - update
-     - patch
-   - apiGroups:
-     - ""
-     resources:
-     - namespaces/status
-     - namespaces
-     - services
-     - secrets
-     verbs:
-     - get
-     - list
-     - watch
-     - update
-     - create
-     - patch
-     - delete
-   - apiGroups:
-     - extensions
-     - apps
-     resources:
-     - deployments
-     verbs:
-     - get
-     - list
-     - watch
-     - update
-     - create
-     - patch
-     - delete
-   ---
-   apiVersion: v1
-   kind: ServiceAccount
-   metadata:
-     name: load-balancer-controller
-     namespace: kube-system
-   ---
-   kind: ClusterRoleBinding
-   apiVersion: rbac.authorization.k8s.io/v1
-   metadata:
-     name: system:cloud-controller-manager
-   roleRef:
-     apiGroup: rbac.authorization.k8s.io
-     kind: ClusterRole
-     name: system:load-balancer-controller
-   subjects:
-     - kind: ServiceAccount
-       name: load-balancer-controller
-       namespace: kube-system
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: ClusterRole
+  metadata:
+    name: system:load-balancer-controller
+  rules:
+  - apiGroups:
+    - ""
+    resources:
+    - events
+    verbs:
+    - get
+    - list
+    - create
+    - patch
+    - update
+  - apiGroups:
+    - ""
+    resources:
+    - nodes
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - nodes/status
+    verbs:
+    - patch
+    - update
+  - apiGroups:
+    - ""
+    resources:
+    - services
+    - pods
+    verbs:
+    - get
+    - list
+    - watch
+    - update
+    - patch
+  - apiGroups:
+    - ""
+    resources:
+    - configmaps
+    verbs:
+    - get
+    - list
+    - watch
+    - update
+    - patch
+  - apiGroups:
+    - ""
+    resources:
+    - services/status
+    - pods/status
+    verbs:
+    - update
+    - patch
+  - apiGroups:
+    - ""
+    resources:
+    - serviceaccounts
+    verbs:
+    - create
+  - apiGroups:
+    - ""
+    resources:
+    - endpoints
+    verbs:
+    - get
+    - list
+    - watch
+    - create
+    - patch
+    - update
+  - apiGroups:
+    - coordination.k8s.io
+    resources:
+    - leases
+    verbs:
+    - get
+    - list
+    - update
+    - create
+  - apiGroups:
+    - apiextensions.k8s.io
+    resources:
+    - customresourcedefinitions
+    verbs:
+    - get
+    - update
+    - create
+    - delete
+  - apiGroups:
+    - networking.k8s.io
+    resources:
+    - ingresses
+    - ingressclasses
+    verbs:
+    - get
+    - list
+    - watch
+    - update
+    - create
+    - patch
+    - delete
+  - apiGroups:
+    - alibabacloud.com
+    resources:
+    - albconfigs
+    verbs:
+    - get
+    - list
+    - watch
+    - update
+    - create
+    - patch
+    - delete
+  - apiGroups:
+    - alibabacloud.com
+    resources:
+    - albconfigs/status
+    verbs:
+    - update
+    - patch
+  - apiGroups:
+    - networking.k8s.io
+    resources:
+    - ingresses/status
+    verbs:
+    - update
+    - patch
+  - apiGroups:
+    - ""
+    resources:
+    - namespaces/status
+    - namespaces
+    - services
+    - secrets
+    verbs:
+    - get
+    - list
+    - watch
+    - update
+    - create
+    - patch
+    - delete
+  - apiGroups:
+    - extensions
+    - apps
+    resources:
+    - deployments
+    verbs:
+    - get
+    - list
+    - watch
+    - update
+    - create
+    - patch
+    - delete
+  ---
+  apiVersion: v1
+  kind: ServiceAccount
+  metadata:
+    name: load-balancer-controller
+    namespace: kube-system
+  ---
+  kind: ClusterRoleBinding
+  apiVersion: rbac.authorization.k8s.io/v1
+  metadata:
+    name: system:load-balancer-controller
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: system:load-balancer-controller
+  subjects:
+    - kind: ServiceAccount
+      name: load-balancer-controller
+      namespace: kube-system
    ```
 
 2. Before you run Alibaba Load Balancer Controller, you must configure relevant files or run the corresponding commands. In this example, the relevant files are configured by using ConfigMap.
 
    ```yaml
-   apiVersion: v1
-   kind: ConfigMap
-   metadata:
-     name: load-balancer-config
-     namespace: kube-system
-   data:
-     cloud-config.conf: |-
-       {
-           "Global": {
-               "AccessKeyID": "VndV***", # Base64 encoding is required.
-               "AccessKeySecret": "UWU0NnUyTFdhcG***" # Base64 encoding is required.
-           }
-       }
+  apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: load-balancer-config
+    namespace: kube-system
+  data:
+    cloud-config.conf: |-
+        {
+            "Global": {
+                "AccessKeyID": "VndV***", # 需要base64编码
+                "AccessKeySecret": "UWU0NnUyTFdhcG***" # 需要base64编码
+            }
+        }
    ```
 
 3. Refer to the following file to deploy and run the Deployment file.
 
    ```yaml
-   apiVersion: apps/v1
-   kind: Deployment
-   metadata:
-     labels:
-       app: load-balancer-controller
-       tier: control-plane
-     name: load-balancer-controller
-     namespace: kube-system
-   spec:
-     replicas: 1
-     selector:
-       matchLabels:
-         app: load-balancer-controller
-         tier: control-plane
-     template:
-       metadata:
-         labels:
-           app: load-balancer-controller
-           tier: control-plane
-       spec:
-         containers:
-           - command:
-               - /load-controller-manager
-               - --cloud-config=/etc/kubernetes/config/cloud-config.conf
-               - --controllers=ingress
-               - --leader-elect-resource-name=alb
-               - --configure-cloud-routes=false
-             image: registry.cn-beijing.aliyuncs.com/wg/alb:pure-ctl
-             imagePullPolicy: Always
-             livenessProbe:
-               failureThreshold: 8
-               initialDelaySeconds: 15
-               periodSeconds: 10
-               successThreshold: 1
-               tcpSocket:
-                 port: 10258
-               timeoutSeconds: 15
-             name: load-balancer-controller
-             readinessProbe:
-               failureThreshold: 8
-               initialDelaySeconds: 15
-               periodSeconds: 10
-               successThreshold: 1
-               tcpSocket:
-                 port: 10258
-               timeoutSeconds: 15
-             resources:
-               limits:
-                 cpu: "1"
-                 memory: 1Gi
-               requests:
-                 cpu: 100m
-                 memory: 200Mi
-             securityContext:
-               allowPrivilegeEscalation: false
-               readOnlyRootFilesystem: true
-               runAsNonRoot: true
-               runAsUser: 1200
-             terminationMessagePath: /dev/termination-log
-             terminationMessagePolicy: File
-             volumeMounts:
-               - mountPath: /etc/kubernetes/config
-                 name: cloud-config
-         dnsPolicy: ClusterFirst
-         imagePullSecrets:
-         - name: aliyun-secret
-         restartPolicy: Always
-         schedulerName: default-scheduler
-         securityContext: {}
-         serviceAccount: load-balancer-controller
-         serviceAccountName: load-balancer-controller
-         terminationGracePeriodSeconds: 30
-         tolerations:
-           - operator: Exists
-         volumes:
-           - configMap:
-               defaultMode: 420
-               items:
-                 - key: cloud-config.conf
-                   path: cloud-config.conf
-               name: load-balancer-config
-             name: cloud-config
+  apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    labels:
+      app: load-balancer-controller
+      tier: control-plane
+    name: load-balancer-controller
+    namespace: kube-system
+  spec:
+    replicas: 1
+    selector:
+      matchLabels:
+        app: load-balancer-controller
+        tier: control-plane
+    template:
+      metadata:
+        labels:
+          app: load-balancer-controller
+          tier: control-plane
+      spec:
+        containers:
+          - command:
+              - /load-balancer-controller
+              - --cloud-config=/etc/kubernetes/config/cloud-config.conf
+              - --controllers=ingress,service
+              - --leader-elect-resource-name=alb
+              - --configure-cloud-routes=false
+            image: ${path/to/your/image/registry}
+            imagePullPolicy: Always
+            livenessProbe:
+              failureThreshold: 8
+              initialDelaySeconds: 15
+              periodSeconds: 10
+              successThreshold: 1
+              tcpSocket:
+                port: 10258
+              timeoutSeconds: 15
+            name: load-balancer-controller
+            readinessProbe:
+              failureThreshold: 8
+              initialDelaySeconds: 15
+              periodSeconds: 10
+              successThreshold: 1
+              tcpSocket:
+                port: 10258
+              timeoutSeconds: 15
+            resources:
+              limits:
+                cpu: "1"
+                memory: 1Gi
+              requests:
+                cpu: 100m
+                memory: 200Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              runAsUser: 1200
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            volumeMounts:
+              - mountPath: /etc/kubernetes/config
+                name: cloud-config
+        dnsPolicy: ClusterFirst
+        imagePullSecrets:
+        - name: aliyun-secret
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        serviceAccount: load-balancer-controller
+        serviceAccountName: load-balancer-controller
+        terminationGracePeriodSeconds: 30
+        tolerations:
+          - operator: Exists
+        volumes:
+          - configMap:
+              defaultMode: 420
+              items:
+                - key: cloud-config.conf
+                  path: cloud-config.conf
+              name: load-balancer-config
+            name: cloud-config
    ```
 
 Perform the preceding operations in the deploy/vv1/load-balancer-controller.yaml directory.

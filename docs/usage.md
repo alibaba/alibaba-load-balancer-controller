@@ -28,7 +28,7 @@ ALB Ingresses are compatible with NGINX Ingresses and provide improved traffic m
 
 
 
-# Configure ALB Ingresses
+# ALB Ingress Common Configuration
 
 Prerequisites
 
@@ -1074,3 +1074,257 @@ kubectl -n kube-system delete AlbConfig alb-demo
 ```
 
 Replace `alb-demo` with the name of the AlbConfig object that you want to delete.
+
+
+# ALB Ingress GlobalConfiguration Dictionary
+This topic provides an Application Load Balancer (ALB) Ingress GlobalConfiguration dictionary to help you identify and troubleshoot configuration format issues. The GlobalConfiguration dictionary contains annotations and AlbConfig fields supported by ALB Ingress. 
+
+## Annotations supported by ALB Ingress
+You can add annotations to ALB Ingress to configure ALB-relevant settings. 
+
+### Health checks
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/healthcheck-enabled`   | Specifies whether to enable health checks for backend server groups.    | `"true"` or `"false"`                                          | `"false"`|
+| `alb.ingress.kubernetes.io/healthcheck-path`      | The path to which health check requests are sent.                   | string                                                         | `"/"`    |
+| `alb.ingress.kubernetes.io/healthcheck-protocol`  | The protocol that is used for health checks.                   | `"HTTP"`, `"TCP"`                               | `"HTTP"` |
+| `alb.ingress.kubernetes.io/healthcheck-method`    |The health check method.                    | `"HEAD"`, `"POST"`, `"GET"`                                   | `"HEAD"` |
+| `alb.ingress.kubernetes.io/healthcheck-httpcode`  | The status codes used for health checks.                  | `"http_2xx"`, `"http_3xx"`, `"http_4xx"`, `"http_5xx"`| `"http_2xx"` |
+| `alb.ingress.kubernetes.io/healthcheck-timeout-seconds` | The health check timeout in seconds.       | `1~300`                                                        | `5`       |
+| `alb.ingress.kubernetes.io/healthcheck-interval-seconds` | The health check interval.                    | `1~50`                                                         | `2`       |
+| `alb.ingress.kubernetes.io/healthy-threshold-count`      | The number of times that a server needs to consecutively pass health checks before it is considered healthy.    | `2~10`                                                         | `3`       |
+| `alb.ingress.kubernetes.io/unhealthy-threshold-count`    | The number of times that a server needs to consecutively fail health checks before it is considered unhealthy.    | `2~10`                                                         | `3`       |
+| `alb.ingress.kubernetes.io/healthcheck-connect-port`     | The port used for health checks. If you set the value to `0`, the port of the backend server will be used for health checks.                    | `0~65535`                                                      | `0` |
+
+### Redirect
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/ssl-redirect`      | Specifies whether to redirect HTTP requests to HTTPS requests. | `"true"` or `"false"` | `"false"`|
+
+### Backend protocol
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/backend-protocol` | The protocol used by backend server groups.    | `"http"`, `"https"`, `"grpc"` | `"http"`|
+
+### Rewrite
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/rewrite-target`          | The path that overwrites the path in requests.                    | string                                | N/A                          |
+
+### Listeners
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/listen-ports`            | Associates listener port with protocol.                | jsonObject                            | `'[{"HTTP": 80}]'` 或 `'[{"HTTPS": 443}]'` 或 `'[{"HTTP": 80},{"HTTPS": 443}]'` |
+
+### Priorities
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/order`                   | The priorities of forwarding rules.              | `1~1000`                              | `10`                           |
+
+### Canary
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/canary`                  | Specifies whether to enable canary.                | `"true"` or `"false"`                 | `"false"`                      |
+| `alb.ingress.kubernetes.io/canary-by-header`        | Request headers hit when canary is enabled.         | string                                | N/A                            |
+| `alb.ingress.kubernetes.io/canary-by-header-value`  | The header value corresponding to the hit request header when canary is enabled. | string                            | N/A                            |
+| `alb.ingress.kubernetes.io/canary-by-cookie`        | The cookie of the requests when canary is enabled.           | string                                | N/A                        |
+
+### Session persistence
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/sticky-session`          | Specifies whether to enable session persistence.      | `"true"` or `"false"`         | `"false"`|
+| `alb.ingress.kubernetes.io/sticky-session-type`     | The type of session persistence.               | `"Insert"` or `"Server"`      | `"Insert"`|
+| `alb.ingress.kubernetes.io/cookie-timeout`          | The session persistence timeout period in seconds.          | `1~86400`                     | `1000`   |
+
+### Load balancing
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/backend-scheduler`              | The load balancing algorithm.                    | `"wrr"`, `"wlc"`, `"sch"`, `"uch"`          | `"wrr"` |
+| `alb.ingress.kubernetes.io/backend-scheduler-uch-value`    | This annotation is available when the load balancing algorithm is set to uch.               | string                                          | N/A     |
+
+### Cross-origin resource sharing (CORS)
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/enable-cors`                | Specifies whether to enable CORS.                      | `"true"` or `"false"`                                                                           | `"false"`                                                                                              |
+| `alb.ingress.kubernetes.io/cors-allow-origin`          | The origins from which you want to allow CORS requests.                           | string                                                                                          | `"*"`                                                                                                  |
+| `alb.ingress.kubernetes.io/cors-expose-headers`        | The headers that can be exposed.                   | stringArray                                                                                     | N/A                                                                                                    |
+| `alb.ingress.kubernetes.io/cors-allow-methods`         | The request methods of CORS requests that are allowed.                    |  Select one or more of the following values：`["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"]`                  | `"GET, PUT, POST, DELETE, PATCH, OPTIONS"`                                                             |
+| `alb.ingress.kubernetes.io/cors-allow-credentials`     | Specifies whether to allow credentials in requests.              | `"true"` or `"false"`                                                                           | `"true"`                                                                                               |
+| `alb.ingress.kubernetes.io/cors-max-age`               | The maximum cache time of dryrun requests in the browser.         | `-1~172800`                                                                                     | `172800`                                                                                               |
+| `alb.ingress.kubernetes.io/cors-allow-headers`         |  The headers of CORS requests that are allowed.                        | stringArray                                                                                     | `"DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization"` |
+
+### Custom forwarding
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/actions.{svcName}`          | The custom forwarding actions.                         | json                                                                                            | N/A                                                                                                    |
+| `alb.ingress.kubernetes.io/conditions.{svcName}`       | The custom forwarding conditions.                        | json                                                                                            | N/A                                                                                                   |
+| `alb.ingress.kubernetes.io/rule-direction.{svcName}`   | The custom forwarding direction.                         | `"Request"` or `"Response"`                                                                      | `"Request"`                                                                                            |
+
+### Others
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `alb.ingress.kubernetes.io/backend-keepalive`          | Specifies whether to enable backend persistent connection.                    | `"true"` or `"false"`                                                                           | `"false"`                                                                                              |
+| `alb.ingress.kubernetes.io/traffic-limit-qps`          | QPS Rate Limiting Configuration.                           | `1~100000`                                                                                      | N/A                                                                                                    |
+| `alb.ingress.kubernetes.io/use-regex`                  | Specifies whether regular expressions can be used in the Path field. This annotation is valid only when the path type is Prefix.  | `"true"` or `"false"`                                                                           | `"false"`                                                                                              |
+
+## AlbConfig fields
+An AlbConfig is a CustomResourceDefinition (CRD) used to describe an ALB instance and its listeners. The following tables describe the relevant fields. 
+
+### Albconfig
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `apiVersion` |The API version of the object.                 | `"alibabacloud.com/v1"`                                         |                     N/A                            |
+| `kind`      | Kind indicates the REST resource corresponding to the object.                   | `"AlbConfig"`                                                   |                           N/A                        |
+| `metadata`  | The metadata of the object. For more information, see [metadata](https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata)。        | [ObjectMeta](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#objectmeta-v1-meta)                                                    |    N/A   |
+| `spec`      | A list of parameters used to describe the attributes of the ALB instance and its listeners.            | [AlbConfigSpec](#AlbConfigSpec)                                                 |                               N/A                    |
+| `status`    | The state of the ALB instance will be written into the `status` field after reconcilation. The value of the field indicates the current status of the ALB instance.  | [AlbConfigStatus](#AlbConfigStatus)                                                     |                    N/A                               |
+
+### AlbConfigSpec
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `config`   | The attributes of the ALB instance.     | [LoadBalancerSpec](#LoadBalancerSpec) | N/A    |
+| `listeners`| The attributes of the listeners of the ALB instance.  | [[]ListenerSpec](#ListenerSpec)  | N/A    |
+
+### LoadBalancerSpec 
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `id`                        | ALB Instance ID, filling it in indicates enabling the reuse mode.    | `string`                           | `""`                                |
+| `name`                      | The name of the ALB instance.                         | `string`                           | `k8s-{namespace}-{name}-{hashCode}` |
+| `addressAllocatedMode`      | The address mode of the ALB instance.                      | `"Dynamic"` or `"Fixed"`           | `"Dynamic"`                         |
+| `addressType`               | The network type of the IPv4 CIDR block of the ALB instance.              | `"Internet"` or `"Intranet"`       | `"Internet"`                        |
+| `ipv6AddressType`           | The network type of the IPv6 CIDR block of the ALB instance.              | `"Internet"` or `"Intranet"`       | `"Intranet"`                        |
+| `addressIpVersion`          | The protocol version.                           | `"IPv4"` or `"DualStack"`          | `"IPv4"`                            |
+| `resourceGroupId`           | The ID of the resource group to which the ALB instance belongs.                 | string                           | 默认资源组                          |
+| `edition`                   | The feature version of the ALB instance.                       | `"Standard"` or `"StandardWithWaf"`| `"Standard"`                        |
+| `deletionProtectionEnabled` | A reserved field. This field is not adjustable.    | `*bool`                            | `null`                              |
+| `forceOverride`             |      Forcefully overwrites the attributes of the ALB instance in reuse mode.      | `*bool`                            | `false`                             |
+| `listenerForceOverride`     | Forcefully overwrites the attributes of the listeners in reuse mode.          | `*bool`                            | `null`                              |
+| `zoneMappings`              | The zone and Elastic IP Address (EIP) configuration.                    | [[]ZoneMapping](#ZoneMapping)                  |               N/A                      |
+| `accessLogConfig`           | The log collection configuration.                          | [AccessLogConfig](#AccessLogConfig)                  |                N/A                     |
+| `billingConfig`             | The billing method.                           | [BillingConfig](#BillingConfig)                   |                     N/A                |
+| `modificationProtectionConfig`| The configuration protection setting.                     | [ModificationProtectionConfig](#ModificationProtectionConfig)     |                N/A                     |
+| `tags`                      | The tags of the ALB instance.                           | [[]Tag](#Tag)                          |                    N/A                 |
+
+### ZoneMapping 
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `vSwitchId`   | Required. <br> The vSwitch ID.             | `string`  | `""`   |
+| `zoneId`      | Automatically specified.<br>The zone of the vSwitch.          | `string`  | `""`   | 
+| `allocationId`| The ID of the EIP.            | `string`  | `""`   |
+| `eipType`     | A reserved field.                    | `string`  | `""`   |
+
+### AccessLogConfig
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `logStore`  | The name of the Simple Log Service Logstore.     | string | `""`   |
+| `logProject`| The name of the Simple Log Service project.   | string | `""`   |
+
+### BillingConfig 
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `internetBandwidth`  | A reserved field.             | int    | `0`        |
+| `internetChargeType` | A reserved field.             | string | `""`       |
+| `payType`            | The billing method.             | string | `"PostPay"`|
+| `bandWidthPackageId` | The ID of the associated Internet Shared Bandwidth instance. You cannot disassociate the Internet Shared Bandwidth instance.    | string | `""`       |
+
+### ModificationProtectionConfig 
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `reason` | A reserved field.       | `string` | `""`          |
+| `status` | A reserved field.       | `string` | `""`          |
+
+### Tag 
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `key` | The key of the tag.     | string | `""`          |
+| `value` | The value of the tag.     | string | `""`          |
+
+
+### ListenerSpec 
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `gzipEnabled`      | Specifies whether to enable compression.         | `null` or `true` or `false` | `null`                                  |
+| `http2Enabled`     | Specifies whether to use HTTP/2.   | `null` or `true` or `false` | `null`                                  |
+| `port`             | Required. <br>The listener port.             | Int Or String         | `0`                                         |
+| `protocol`         | Required. <br>The listener protocol.             | `"HTTP"` or `"HTTPS"` or `"QUIC"` | `""`                              |
+| `securityPolicyId` | The ID of the TLS security policy.       | string              | `""`                                         |
+| `idleTimeout`      | The idle connection timeout period.<br>A value of 0 indicates that the default value is used.     | `int`                 | `60`                                        |
+| `loadBalancerId`   | A reserved field.             | string              | `""`                                         |
+| `description`      | The name of the listener.               | string              | `ingress-auto-listener-{port}`              |
+| `caEnabled`        | A reserved field.             | bool                | `false`                                      |
+| `requestTimeout`   | The timeout period of requests.         | int                | `60`                                         |
+| `quicConfig`       | The QUIC listener configuration.         | [QuicConfig](#QuicConfig)          |                                               |
+| `defaultActions`   | A reserved field.             | `[]Action`            | `null`                                       |
+| `caCertificates`   | A reserved field.             | [Certificate](#Certificate)         | `null`                                       |
+| `certificates`     | The listening server certificate.      |[Certificate](#Certificate)           | `null`                                       |
+| `xForwardedForConfig` | The configuration of the XForward header.  | [XForwardedForConfig](#XForwardedForConfig ) |              N/A                               |
+| `logConfig`        | A reserved field.             | `LogConfig`           |                     N/A                          |
+| `aclConfig`        | The access control configuration.            | [AclConfig](#)           |                    N/A                           |
+
+
+
+### QuicConfig 
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `quicUpgradeEnabled`| Specifies whether to enable QUIC upgrades.   | bool   | `false`       |
+| `quicListenerId`    | The QUIC listener.    | string | `""`          |
+
+### Certificate
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `IsDefault`     | Specifies whether the current certificate is the default certificate.  <br> Each service or system can have only one default certificate.       | bool   | `false`       |
+| `CertificateId` | The ID of the certificate. | string | `""`          |
+
+### XForwardedForConfig 
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `XForwardedForClientCertSubjectDNAlias`         | The name of the custom header. This field is valid only when `XForwardedForClientCertSubjectDNEnabled`is set to`true`.                | string   | `""`          |
+| `XForwardedForClientCertSubjectDNEnabled`       | Specifies whether to use the`X-Forwarded-Clientcert-subjectdn` header to retrieve information about the owner of the client certificate.                  | bool     | `false`       |
+| `XForwardedForProtoEnabled`                     | Specifies whether to use the`X-Forwarded-Proto`header to retrieve the listener protocol of the ALB instance.                                                 | bool     | `false`       |
+| `XForwardedForClientCertIssuerDNEnabled`        | Specifies whether to use the`X-Forwarded-Clientcert-issuerdn` header to retrieve information about the authority that issues the client certificate.                 | bool     | `false`       |
+| `XForwardedForSLBIdEnabled`                     | Specifies whether to use the`X-Forwarded-For-SLB-ID`header to retrieve the ID of the ALB instance.                                                                      | bool     | `false`       |
+| `XForwardedForClientSrcPortEnabled`             | Specifies whether to use the`X-Forwarded-Client-Port`header to retrieve the client port.                                        | bool     | `false`       |
+| `XForwardedForClientCertFingerprintEnabled`     | Specifies whether to use the`X-Forwarded-Clientcert-fingerprint`header to retrieve the fingerprint of the client certificate.                   | bool     | `false`       |
+| `XForwardedForEnabled`                          | Specifies whether to use the`X-Forwarded-For`header to retrieve client IP addresses.                                                              | bool     | `false`       |
+| `XForwardedForSLBPortEnabled`                   | Specifies whether to use the`X-Forwarded-Port` header to retrieve the listener ports of the ALB instance.                                                    | bool     | `false`       |
+| `XForwardedForClientCertClientVerifyAlias`      | The name of the custom header. This field is valid only when`XForwardedForClientCertClientVerifyEnabled`is set to `true`. | string   | `""`          |
+| `XForwardedForClientCertIssuerDNAlias`          | The name of the custom header. This field is valid only when `XForwardedForClientCertIssuerDNEnabled`is set to`true`.                    | string   | `""`          |
+| `XForwardedForClientCertFingerprintAlias`       | The name of the custom header. This field is valid only when`XForwardedForClientCertFingerprintEnabled`is set to`true`.                            | string   | `""`          |
+| `XForwardedForClientCertClientVerifyEnabled`    | Specifies whether to use the `X-Forwarded-Clientcert-clientverify`header to retrieve the verification result of the client certificate.                 | bool     | `false`       |
+
+
+### AclConfig 
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `aclName`   | The name of the ACL policy associated in AclEntry mode.  | string    |     N/A          |
+| `aclType`   | The ACL policy type, black and white list.           | `""` or `Black` or `White` | `""`  |
+| `aclEntries`|  The ACL policy entry.           | []string  | `null`          |
+| `aclIds`    | The ID of an existing ACL policy.            | []string  | `null`          |
+
+### AlbConfigStatus
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `loadBalancer` | The status of the ALB instance.       | [LoadBalancerStatus](#LoadBalancerStatus) |       N/A        |
+
+### LoadBalancerStatus 
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `dnsname`   | The status of the ALB instance.     | string           |        N/A        |
+| `id`        | The ID of the ALB instance.          | string           |      N/A          |
+| `listeners` | The attributes of the listeners.       | [[]ListenerStatus](#ListenerStatus) |         N/A       |
+
+
+### ListenerStatus 
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `portAndProtocol` | The listener port and protocol configuration.    | string              | `80/HTTP`     |
+| `certificates`    | The associated certificates.      | [[]AppliedCertificate](#AppliedCertificate) |      N/A         |
+
+### AppliedCertificate
+|**Annotation**|**Description**|**Value**|**Default**|
+| :------------ | :------------ | :------------ | :------------ |
+| `certificateId` | The ID of the certificate.  | string  | `xxxx-cn-hangzhou`  |
+| `isDefault`     | Specifies whether the certificate is the default certificate.       | bool    | `true`              |
+
+
+

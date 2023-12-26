@@ -12,6 +12,7 @@ import (
 
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/requests"
 	"github.com/aliyun/alibaba-cloud-sdk-go/sdk/responses"
+
 	albsdk "github.com/aliyun/alibaba-cloud-sdk-go/services/alb"
 )
 
@@ -52,7 +53,7 @@ func (p DryRunALB) ReuseALB(ctx context.Context, resLB *albmodel.AlbLoadBalancer
 func (p DryRunALB) UnReuseALB(ctx context.Context, lbID string, trackingProvider tracking.TrackingProvider) error {
 	return nil
 }
-func (p DryRunALB) UpdateALB(ctx context.Context, resLB *albmodel.AlbLoadBalancer, sdkLB albsdk.LoadBalancer) (albmodel.LoadBalancerStatus, error) {
+func (p DryRunALB) UpdateALB(ctx context.Context, resLB *albmodel.AlbLoadBalancer, sdkLB albsdk.LoadBalancer, trackingProvider tracking.TrackingProvider) (albmodel.LoadBalancerStatus, error) {
 	return albmodel.LoadBalancerStatus{}, nil
 }
 func (p DryRunALB) DeleteALB(ctx context.Context, lbID string) error {
@@ -123,6 +124,9 @@ func (p DryRunALB) UpdateALBServerGroup(ctx context.Context, resSGP *albmodel.Se
 func (p DryRunALB) DeleteALBServerGroup(ctx context.Context, serverGroupID string) error {
 	return nil
 }
+func (p DryRunALB) SelectALBServerGroupsByID(ctx context.Context, serverGroupID string) (albmodel.ServerGroupWithTags, error) {
+	return albmodel.ServerGroupWithTags{}, nil
+}
 
 // ALB Tags
 func (p DryRunALB) ListALBServerGroupsWithTags(ctx context.Context, tagFilters map[string]string) ([]albmodel.ServerGroupWithTags, error) {
@@ -141,10 +145,17 @@ func (p DryRunALB) UpdateAcl(ctx context.Context, listenerID string, resAndSDKAc
 func (p DryRunALB) DeleteAcl(ctx context.Context, listenerID, sdkAclID string) error {
 	return nil
 }
-func (p DryRunALB) ListAcl(ctx context.Context, listener *albmodel.Listener, aclId string) ([]albsdk.Acl, error) {
+func (p DryRunALB) ListAcl(ctx context.Context, listener *albmodel.Listener, aclIds []string) ([]albsdk.Acl, error) {
 	return nil, nil
 }
 
 func (p DryRunALB) ListAclEntriesByID(traceID interface{}, sdkAclID string) ([]albsdk.AclEntry, error) {
 	return nil, nil
+}
+
+func (p DryRunALB) AssociateAclWithListener(ctx context.Context, traceID interface{}, resAcl *albmodel.Acl, aclIds []string) error {
+	return nil
+}
+func (p DryRunALB) DisassociateAclWithListener(traceID interface{}, listenerID string, aclIds []string) error {
+	return nil
 }

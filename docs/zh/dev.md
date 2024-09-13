@@ -361,4 +361,4 @@ Alibaba Load Balancer Controller的部署采用标准的Kubernetes Deployment资
              name: cloud-config
    ```
 
-上述过程统一放在 deploy/vv1/load-balancer-controller.yaml 中，方便直接使用
+上述过程统一放在 deploy/v1/load-balancer-controller.yaml 中，方便直接使用

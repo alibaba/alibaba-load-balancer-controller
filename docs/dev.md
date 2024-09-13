@@ -361,4 +361,4 @@ When you deploy an image for Alibaba Load Balancer Controller, the standard Kube
              name: cloud-config
    ```
 
-Perform the preceding operations in the deploy/vv1/load-balancer-controller.yaml directory.
+Perform the preceding operations in the deploy/v1/load-balancer-controller.yaml directory.

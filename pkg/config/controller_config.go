@@ -30,6 +30,8 @@ const (
 	flagNodeMonitorPeriod              = "node-monitor-period"
 	flagNetwork                        = "network"
 
+	flagBackendSkipMasterNode = "backend-skip-master-node"
+
 	defaultCloudProvider             = "alibabacloud"
 	defaultClusterName               = "kubernetes"
 	defaultConfigureCloudRoutes      = true
@@ -54,6 +56,7 @@ type ControllerConfig struct {
 	LogLevel                       int
 	DryRun                         bool
 	NetWork                        string
+	BackendSkipMasterNode          bool
 
 	RuntimeConfig RuntimeConfig
 	CloudConfig   *CloudConfig
@@ -78,6 +81,7 @@ func (cfg *ControllerConfig) BindFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&cfg.NodeMonitorPeriod.Duration, flagNodeMonitorPeriod, defaultNodeMonitorPeriod, "The period for syncing NodeStatus in NodeController.")
 	fs.StringVar(&cfg.FeatureGates, flagFeatureGates, "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
 	fs.BoolVar(&cfg.AllowUntaggedCloud, "allow-untagged-cloud", false, "Allow the cluster to run without the cluster-id on cloud instances. This is a legacy mode of operation and a cluster-id will be required in the future.")
+	fs.BoolVar(&cfg.BackendSkipMasterNode, flagBackendSkipMasterNode, true, "Whether to skip master nodes as a backend node.")
 	_ = fs.MarkDeprecated("allow-untagged-cloud", "This flag is deprecated and will be removed in a future release. A cluster-id will be required on cloud instances.")
 
 	cfg.RuntimeConfig.BindFlags(fs)
